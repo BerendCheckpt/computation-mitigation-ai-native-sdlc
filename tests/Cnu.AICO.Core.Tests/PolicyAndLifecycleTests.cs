@@ -111,6 +111,26 @@ public class AnomalyDetectorTests
     public void Too_little_history_never_alerts() =>
         Assert.Equal(Band.Normal, AnomalyDetector.Evaluate("m", [0.1, 0.1], 10).Band);
 
+    // Regression for issue #4: with too little history the detector emitted NaN for mean/σ,
+    // which System.Text.Json cannot write, so maintain-detect crashed on every run in a young repo.
+    [Fact]
+    public void Too_little_history_reports_no_statistics_and_serializes()
+    {
+        var d = AnomalyDetector.Evaluate("ci_failure_rate", [0.1, 0.2], 0.3);
+
+        Assert.Null(d.Mean);
+        Assert.Null(d.StdDev);
+        var json = System.Text.Json.JsonSerializer.Serialize(d);
+        Assert.Contains("\"Mean\":null", json);
+    }
+
+    [Fact]
+    public void Non_finite_input_is_rejected_with_a_clear_message()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => AnomalyDetector.Evaluate("m", Baseline, double.PositiveInfinity));
+        Assert.Contains("non-finite", ex.Message);
+    }
+
     [Fact]
     public void Lower_is_worse_metrics_invert_the_sign() =>
         Assert.Equal(Band.Act, AnomalyDetector.Evaluate("throughput", [100, 101, 99, 100, 102, 98, 100, 101], 80, higherIsWorse: false).Band);

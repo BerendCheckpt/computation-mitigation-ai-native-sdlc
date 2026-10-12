@@ -13,7 +13,11 @@ public enum Band
     Act = 3,
 }
 
-public sealed record Detection(string Metric, double Value, double Mean, double StdDev, double Sigma, Band Band);
+/// <summary>
+/// <see cref="Mean"/> and <see cref="StdDev"/> are null when there is too little history to compute a baseline;
+/// never NaN, because detection output is serialized to JSON (which has no NaN/Infinity).
+/// </summary>
+public sealed record Detection(string Metric, double Value, double? Mean, double? StdDev, double Sigma, Band Band);
 
 /// <summary>
 /// Deterministic anomaly detection on a metric with a stable rolling baseline (e.g. CI failure rate, post-deploy 5xx rate).
@@ -26,7 +30,9 @@ public static class AnomalyDetector
     public static Detection Evaluate(string metric, IReadOnlyList<double> baseline, double current, bool higherIsWorse = true, int minSamples = 7)
     {
         if (baseline.Count < minSamples)
-            return new Detection(metric, current, double.NaN, double.NaN, 0, Band.Normal);
+            return new Detection(metric, current, null, null, 0, Band.Normal);
+        if (!double.IsFinite(current) || baseline.Any(v => !double.IsFinite(v)))
+            throw new ArgumentException($"Metric '{metric}' contains a non-finite value; fix the metric collection step.");
 
         var mean = baseline.Average();
         var std = Math.Sqrt(baseline.Sum(v => (v - mean) * (v - mean)) / (baseline.Count - 1));

@@ -36,3 +36,4 @@ Build + tests pass, `validate` passes, golden diff reviewed, docs updated when b
 ## Known mistakes (add a line when something happens twice)
 - `dotnet run file.cs` defaults to AOT-style trimming: keep `#:property PublishAot=false` in scripts that use Core.
 - Golden files live in `tests/golden/`, never inside a test project (they would be compiled).
+- Never put `NaN`/`Infinity` in anything that is serialized to JSON (it throws): use `double?` and `null` for "unknown" (issue #4).
