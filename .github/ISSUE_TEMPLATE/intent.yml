@@ -1,0 +1,47 @@
+name: New intent
+description: Requirements analysts — describe a problem or request. Claude picks it up and drafts intent.md.
+title: "intent: "
+labels: ["stage:intent"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the **problem**, not the solution. Claude reads this issue (label `stage:intent`), asks clarifying
+        questions as comments, and opens an `intent.md` PR. Answer in the comments; mention `@claude` to continue.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What cannot be done today? What goes wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: affected
+    attributes:
+      label: Who is affected
+      description: Roles, retailers, vendors, systems.
+    validations:
+      required: true
+  - type: textarea
+    id: better
+    attributes:
+      label: What does "better" mean?
+      description: How will we know it is solved? Numbers where possible.
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints
+      description: Deadlines, compliance, retailer FDS references, dependencies.
+  - type: dropdown
+    id: criticality
+    attributes:
+      label: Criticality
+      options: ["normal", "regulated (compliance / personal data)", "critical (production-impacting)"]
+    validations:
+      required: true

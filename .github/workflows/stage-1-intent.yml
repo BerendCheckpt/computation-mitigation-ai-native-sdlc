@@ -1,0 +1,52 @@
+# Stage 1 — Plan. A requirements analyst opens a "New intent" issue (label stage:intent).
+# Claude picks it up with the write-intent skill, asks clarifying questions as comments, and opens an intent.md PR.
+# The analyst answers in comments and mentions @claude to continue. The product owner's merge = acceptance.
+name: stage-1-intent
+
+on:
+  issues:
+    types: [opened, labeled]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+
+concurrency:
+  group: intent-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  intent:
+    if: >
+      contains(github.event.issue.labels.*.name, 'stage:intent') && !github.event.issue.pull_request &&
+      (github.event_name == 'issues' || contains(github.event.comment.body, '@claude'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          track_progress: true
+          prompt: |
+            REPO: ${{ github.repository }}
+            ISSUE: #${{ github.event.issue.number }}
+
+            Use the write-intent skill on this issue and its comments.
+            If information is missing, post ONE comment with at most 5 questions and stop.
+            Otherwise write work/${{ github.event.issue.number }}-<slug>/intent.md and open a PR
+            titled "intent: <slug>" with label stage:intent that links the issue.
+            If the issue says "critical" or "regulated", add that label to the PR.
+          # Intent work is ideation: a model is allowed; the mid tier is enough (ADR 0004).
+          claude_args: |
+            --model claude-sonnet-5-5
+            --max-turns 20
+            --mcp-config '{"mcpServers":{"cnu-aico":{"type":"stdio","command":"dotnet","args":["run","--project","src/Cnu.AICO.McpServer","--"],"env":{"CNU_AICO_CONTEXT":"ideation"}}}}'
+            --allowedTools Read,Write,Edit,Glob,Grep,Bash(git:*),Bash(gh issue comment:*),Bash(gh pr create:*),mcp__cnu-aico__match_template

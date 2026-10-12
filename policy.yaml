@@ -1,0 +1,30 @@
+# Cnu.AICO policy — when may a model reason, and when must work go to a human?
+# Enforced by Cnu.AICO.McpServer (match_template / generate_* / record_outcome) and by the CI workflows.
+# Changes require tech-lead approval (CODEOWNERS).
+
+# Context assumed when a caller does not say (CNU_AICO_CONTEXT env var or the tool's `context` argument).
+defaultContext: build
+
+# Model reasoning is reserved for work where it adds value:
+#   ideation   – brainstorming intents (Stage 1)
+#   feedback   – an engineer explicitly asks for feedback/review
+#   build      – novel implementation work in an interactive session (Stage 3)
+#   agent-fix  – a monitoring agent fixing a NON-critical issue (Stage 6, 3σ)
+#   diagnose   – read-only diagnosis (Stage 6, 2σ)
+# Any other context (e.g. `ci`) runs deterministic flows only: a prompt that no crystallized template
+# serves is routed to a human instead of a model.
+modelAllowedContexts: [ideation, feedback, build, agent-fix, diagnose]
+
+rules:
+  - name: critical-needs-human
+    when:
+      labels: [critical]
+      contexts: [agent-fix, diagnose, ci]
+    route: human
+    reason: "Issue is labelled 'critical': no autonomous model or tool action; fix through a human-authored, human-reviewed PR."
+
+  - name: regulated-needs-human-review
+    when:
+      labels: [regulated, critical]
+    requireHumanReview: true
+    reason: "Regulated/critical code: a human reviewer must approve the PR (REVIEW.md)."

@@ -1,0 +1,11 @@
+# Paths agents may not edit directly (glob, relative to the repo root). Changes go through a PR by CODEOWNERS.
+# Enforced by `aico-hook.cs protect-paths`; non-negotiable equivalents also live in managed settings.
+.claude/settings.json
+.claude/hooks/**
+policy.yaml
+REVIEW.md
+ops/bands.md
+.github/workflows/**
+.github/CODEOWNERS
+templates/*/provenance.json
+**/appsettings.Production.json

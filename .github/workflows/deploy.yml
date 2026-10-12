@@ -1,0 +1,48 @@
+# Stage 5 — Deploy. Autonomy is tiered per environment:
+#   dev  — deploys automatically after CI succeeds on main (agents can only cause it through a merged PR).
+#   prod — GitHub environment with required reviewers: a human approves every release; never autonomous.
+# Rollback is one line:  gh workflow run deploy.yml -f environment=prod -f ref=<previous-tag>
+name: deploy
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [dev, prod]
+        default: dev
+      ref:
+        description: Git ref/tag to deploy (use the previous tag to roll back)
+        required: true
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  dev:
+    if: (github.event_name == 'workflow_dispatch' && inputs.environment == 'dev') || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.event.workflow_run.head_sha }}
+      - name: Deploy to dev
+        run: echo "Replace with your deployment (e.g. az webapp deploy / helm upgrade) for dev."
+
+  prod:
+    needs: dev
+    if: always() && ((github.event_name == 'workflow_dispatch' && inputs.environment == 'prod') || needs.dev.result == 'success')
+    runs-on: ubuntu-latest
+    environment: prod   # required reviewers configured in repo settings → human approval gate
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.event.workflow_run.head_sha }}
+      - name: Deploy to prod
+        run: echo "Replace with your deployment for prod."

@@ -1,0 +1,36 @@
+# Stage 4 — Test. Fully deterministic: no model is invoked here.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build (warnings are errors)
+        run: dotnet build Cnu.AICO.slnx -c Release
+      - name: Test (unit, golden files, routing evals, MCP end-to-end)
+        run: dotnet test Cnu.AICO.slnx -c Release --no-build --logger "trx;LogFileName=results.trx"
+      - name: Validate template specs
+        run: dotnet run scripts/aico-ci.cs -- validate
+      - name: Template self-test (generated code + shipped tests compile and pass)
+        run: bash scripts/template-selftest.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: "**/TestResults/*.trx"

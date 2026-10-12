@@ -1,0 +1,49 @@
+# Weekly mitigation KPI report from the decision logs. Deterministic: no model.
+name: kpi-report
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Download last week's decision logs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p .aico
+          since=$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)
+          for id in $(gh run list --workflow template-verify.yml --limit 200 --json databaseId,createdAt \
+                        --jq ".[] | select(.createdAt >= \"$since\") | .databaseId"); do
+            gh run download "$id" --pattern 'aico-decisions-*' --dir ".aico/$id" 2>/dev/null || true
+          done
+      - name: Build report
+        env:
+          # Configurable estimate; publish the factor you use. Not a measurement.
+          CNU_AICO_KWH_PER_MTOK: "0.4"
+          CNU_AICO_G_CO2_PER_KWH: "300"
+        run: dotnet run scripts/aico-ci.cs -- kpi --logs .aico --out "reports/kpi-$(date -u +%G-W%V).md"
+      - name: Open PR with the report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          week=$(date -u +%G-W%V)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "kpi/$week"
+          git add reports/
+          git commit -m "kpi: weekly computation mitigation report $week" || exit 0
+          git push -u origin "kpi/$week"
+          gh pr create --title "kpi: $week" --body "Weekly KPI report (deterministic, no model)." --label kpi

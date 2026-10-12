@@ -1,0 +1,22 @@
+name: Anomaly (automated)
+description: Filed by the maintain-detect workflow when a metric breaches its band. Humans triage.
+title: "anomaly: "
+labels: ["stage:maintain"]
+body:
+  - type: textarea
+    id: detection
+    attributes:
+      label: Detection
+      description: Metric, current value, baseline mean, σ, band (from scripts/aico-ci.cs detect).
+    validations:
+      required: true
+  - type: textarea
+    id: diagnosis
+    attributes:
+      label: Diagnosis (intent draft)
+      description: Anomaly & evidence, likely causes, affected systems, proposed outcome, open questions.
+  - type: dropdown
+    id: triage
+    attributes:
+      label: Triage decision (on-call / service owner)
+      options: ["untriaged", "fix now", "schedule", "dismiss (tune bands)"]

@@ -1,0 +1,29 @@
+using System.Collections.Concurrent;
+
+namespace {{ project }}.Features.{{ entity | plural }};
+
+public interface I{{ entity }}Store
+{
+    IReadOnlyCollection<{{ entity }}> List();
+    {{ entity }}? Find(Guid id);
+    {{ entity }} Add(string name);
+    bool Remove(Guid id);
+}
+
+public sealed class InMemory{{ entity }}Store : I{{ entity }}Store
+{
+    readonly ConcurrentDictionary<Guid, {{ entity }}> _items = new();
+
+    public IReadOnlyCollection<{{ entity }}> List() => _items.Values.OrderBy(x => x.Name, StringComparer.Ordinal).ToList();
+
+    public {{ entity }}? Find(Guid id) => _items.GetValueOrDefault(id);
+
+    public {{ entity }} Add(string name)
+    {
+        var item = new {{ entity }}(Guid.NewGuid(), name);
+        _items[item.Id] = item;
+        return item;
+    }
+
+    public bool Remove(Guid id) => _items.TryRemove(id, out _);
+}

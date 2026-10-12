@@ -1,0 +1,50 @@
+using {{ project }}.Features.{{ entity | plural }};
+using Microsoft.AspNetCore.Http.HttpResults;
+
+namespace {{ project }}.Tests.Features.{{ entity | plural }};
+
+public class {{ entity }}EndpointsTests
+{
+    readonly InMemory{{ entity }}Store _store = new();
+
+    [Fact]
+    public void Create_then_Get_returns_the_item()
+    {
+        var created = Assert.IsType<Created<{{ entity }}>>({{ entity }}Endpoints.Create(new("First"), _store).Result);
+
+        var found = Assert.IsType<Ok<{{ entity }}>>({{ entity }}Endpoints.Get(created.Value!.Id, _store).Result);
+
+        Assert.Equal("First", found.Value!.Name);
+        Assert.Equal($"{{ route }}/{created.Value.Id}", created.Location);
+    }
+
+    [Fact]
+    public void Get_unknown_returns_NotFound() =>
+        Assert.IsType<NotFound>({{ entity }}Endpoints.Get(Guid.NewGuid(), _store).Result);
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Create_without_name_returns_ValidationProblem(string name) =>
+        Assert.IsType<ValidationProblem>({{ entity }}Endpoints.Create(new(name), _store).Result);
+
+    [Fact]
+    public void List_returns_items_ordered_by_name()
+    {
+        _store.Add("b");
+        _store.Add("a");
+
+        var list = {{ entity }}Endpoints.List(_store).Value!;
+
+        Assert.Equal(["a", "b"], list.Select(x => x.Name));
+    }
+
+    [Fact]
+    public void Delete_removes_the_item_once()
+    {
+        var item = _store.Add("gone");
+
+        Assert.IsType<NoContent>({{ entity }}Endpoints.Delete(item.Id, _store).Result);
+        Assert.IsType<NotFound>({{ entity }}Endpoints.Delete(item.Id, _store).Result);
+    }
+}

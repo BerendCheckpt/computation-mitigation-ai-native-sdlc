@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cnu.example/schemas/template-spec.schema.json",
+  "title": "Cnu.AICO template spec",
+  "description": "Executable spec for a crystallized flow (templates/<id>/spec.yaml). Editor support: add `# yaml-language-server: $schema=../../schemas/template-spec.schema.json` to spec.yaml. CI runs the stricter TemplateValidator.",
+  "type": "object",
+  "required": ["id", "version", "state", "title", "owners", "intent", "parameters", "outputs", "tests"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "description": "kebab-case; must equal the folder name." },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "state": { "enum": ["exploratory", "candidate", "approved", "crystallized", "deprecated"] },
+    "title": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "owners": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "estimatedOutputTokens": { "type": "integer", "minimum": 0, "description": "Output tokens a model would spend writing this by hand (KPI estimate)." },
+    "matchThreshold": { "type": "number", "minimum": 0, "maximum": 1 },
+    "intent": {
+      "type": "object",
+      "required": ["keywords"],
+      "additionalProperties": false,
+      "properties": {
+        "keywords": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "synonyms": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "string" } } },
+        "negatives": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "parameters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "type"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*$" },
+          "type": { "enum": ["string"] },
+          "description": { "type": "string" },
+          "required": { "type": "boolean" },
+          "pattern": { "type": "string", "description": "Validation regex for the final value." },
+          "extract": { "type": "string", "description": "Regex with one capture group to pull the value from a prompt." },
+          "transform": { "enum": ["pascal", "camel", "lower", "kebab"] },
+          "default": { "type": "string", "description": "May be a Scriban expression over other parameters." }
+        }
+      }
+    },
+    "requirements": { "type": "array", "items": { "type": "string" } },
+    "preconditions": { "type": "array", "items": { "type": "string" } },
+    "outputs": { "type": "array", "items": { "$ref": "#/$defs/output" }, "minItems": 1 },
+    "tests": {
+      "type": "object",
+      "required": ["unit", "integrationSuggested"],
+      "additionalProperties": false,
+      "properties": {
+        "unit": { "type": "array", "items": { "$ref": "#/$defs/output" }, "minItems": 1 },
+        "integrationSuggested": { "type": "array", "items": { "$ref": "#/$defs/output" }, "minItems": 1 }
+      }
+    },
+    "postActions": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "output": {
+      "type": "object",
+      "required": ["template", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "template": { "type": "string", "description": "Scriban file relative to the template folder." },
+        "path": { "type": "string", "description": "Target path relative to the repo root (Scriban expression)." }
+      }
+    }
+  }
+}

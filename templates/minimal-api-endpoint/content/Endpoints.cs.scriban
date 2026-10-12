@@ -1,0 +1,39 @@
+using Microsoft.AspNetCore.Http.HttpResults;
+
+namespace {{ project }}.Features.{{ entity | plural }};
+
+public static class {{ entity }}Endpoints
+{
+    public static IServiceCollection Add{{ entity }}Store(this IServiceCollection services) =>
+        services.AddSingleton<I{{ entity }}Store, InMemory{{ entity }}Store>();
+
+    public static RouteGroupBuilder Map{{ entity | plural }}Endpoints(this IEndpointRouteBuilder app)
+    {
+        var group = app.MapGroup("{{ route }}").WithTags("{{ entity | plural }}");
+        group.MapGet("/", List);
+        group.MapGet("/{id:guid}", Get);
+        group.MapPost("/", Create);
+        group.MapDelete("/{id:guid}", Delete);
+        return group;
+    }
+
+    public static Ok<IReadOnlyCollection<{{ entity }}>> List(I{{ entity }}Store store) => TypedResults.Ok(store.List());
+
+    public static Results<Ok<{{ entity }}>, NotFound> Get(Guid id, I{{ entity }}Store store) =>
+        store.Find(id) is { } item ? TypedResults.Ok(item) : TypedResults.NotFound();
+
+    public static Results<Created<{{ entity }}>, ValidationProblem> Create(Create{{ entity }}Request request, I{{ entity }}Store store)
+    {
+        if (string.IsNullOrWhiteSpace(request.Name))
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                [nameof(request.Name)] = ["Name is required."],
+            });
+
+        var created = store.Add(request.Name.Trim());
+        return TypedResults.Created($"{{ route }}/{created.Id}", created);
+    }
+
+    public static Results<NoContent, NotFound> Delete(Guid id, I{{ entity }}Store store) =>
+        store.Remove(id) ? TypedResults.NoContent() : TypedResults.NotFound();
+}

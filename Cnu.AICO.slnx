@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/RouterClient/RouterClient.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Cnu.AICO.Core/Cnu.AICO.Core.csproj" />
+    <Project Path="src/Cnu.AICO.McpServer/Cnu.AICO.McpServer.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Cnu.AICO.Core.Tests/Cnu.AICO.Core.Tests.csproj" />
+    <Project Path="tests/Cnu.AICO.McpServer.Tests/Cnu.AICO.McpServer.Tests.csproj" />
+  </Folder>
+</Solution>

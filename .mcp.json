@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "cnu-aico": {
+      "type": "stdio",
+      "command": "dotnet",
+      "args": ["run", "--project", "src/Cnu.AICO.McpServer", "--"],
+      "env": {
+        "CNU_AICO_TEMPLATES": "templates",
+        "CNU_AICO_POLICY": "policy.yaml",
+        "CNU_AICO_LOG": ".aico/decisions.jsonl",
+        "CNU_AICO_CONTEXT": "build"
+      }
+    }
+  }
+}

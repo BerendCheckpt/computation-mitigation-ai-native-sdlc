@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "enableAllProjectMcpServers": false,
+  "enabledMcpjsonServers": ["cnu-aico"],
+  "permissions": {
+    "allow": [
+      "mcp__cnu-aico__match_template",
+      "mcp__cnu-aico__generate_*",
+      "mcp__cnu-aico__export_script",
+      "Bash(dotnet build:*)",
+      "Bash(dotnet test:*)",
+      "Bash(dotnet run scripts/aico-ci.cs:*)",
+      "Bash(dotnet format:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)"
+    ],
+    "ask": [
+      "mcp__cnu-aico__record_outcome",
+      "Bash(git push:*)",
+      "Bash(gh pr create:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./**/secrets/**)",
+      "Bash(git push --force:*)",
+      "Bash(curl:*)",
+      "Bash(rm -rf:*)"
+    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "dotnet run .claude/hooks/aico-hook.cs -- match", "timeout": 30 }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          { "type": "command", "command": "dotnet run .claude/hooks/aico-hook.cs -- protect-paths", "timeout": 30 },
+          { "type": "command", "command": "dotnet run .claude/hooks/aico-hook.cs -- no-secrets", "timeout": 30 },
+          { "type": "command", "command": "dotnet run .claude/hooks/aico-hook.cs -- plan-scope", "timeout": 30 }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          { "type": "command", "command": "dotnet run .claude/hooks/aico-hook.cs -- format", "timeout": 60 }
+        ]
+      }
+    ]
+  }
+}

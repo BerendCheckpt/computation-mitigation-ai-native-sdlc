@@ -1,0 +1,28 @@
+# Deterministic routing evals: real prompts with the route we expect. Run by Cnu.AICO.Core.Tests (RoutingEvalTests)
+# on every push and whenever a spec.yaml changes. When a prompt is mis-routed in practice, add it here first
+# (failing), then tune keywords/synonyms/negatives/extract — the same "incident → eval" rule as for code.
+cases:
+  - prompt: "Add a minimal API endpoint for entity Order in project Shop.Api"
+    route: deterministic
+    template: minimal-api-endpoint
+    parameters: { entity: Order, project: Shop.Api, route: /orders }
+  - prompt: "Create CRUD endpoints for resource Invoice at route /billing/invoices in service Billing.Api"
+    route: deterministic
+    template: minimal-api-endpoint
+    parameters: { entity: Invoice, project: Billing.Api, route: /billing/invoices }
+  - prompt: "scaffold rest handlers for model Retailer in project Cnu.Backoffice.Api"
+    route: deterministic
+    template: minimal-api-endpoint
+    parameters: { entity: Retailer, project: Cnu.Backoffice.Api }
+  - prompt: "Add a minimal API endpoint for entity Order"
+    route: model          # project missing → cannot be deterministic
+  - prompt: "Design a caching strategy for the label renderer"
+    route: model
+  - prompt: "Explain why the Order endpoint returns 404 in project Shop.Api"
+    route: model          # 'explain' is a negative keyword
+  - prompt: "Refactor the Order endpoints in project Shop.Api to use EF Core"
+    route: model
+  - prompt: "Investigate the failing import for retailer Pepco"
+    route: model
+  - prompt: "Write release notes for version 2.4"
+    route: model

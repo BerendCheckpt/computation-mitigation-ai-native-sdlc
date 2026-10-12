@@ -1,0 +1,113 @@
+# Stage 6 — Maintain. Deterministic detection decides WHETHER something is wrong; a model is only invoked at
+# higher bands, and only through gated routes (ops/bands.md):
+#   1σ log · 2σ Claude read-only diagnosis → anomaly issue · 3σ Claude opens a PR through review, or a runbook is named.
+# Metrics flagged critical never get autonomous fixes (policy.yaml: critical → human).
+name: maintain-detect
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      band: ${{ steps.detect.outputs.band }}
+      evidence: ${{ steps.detect.outputs.evidence }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Collect metric (CI failure rate per day) — deterministic
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run list --workflow ci.yml --branch main --limit 500 --json conclusion,createdAt > runs.json
+          jq '[group_by(.createdAt[0:10])[] | {day: .[0].createdAt[0:10], rate: (([.[] | select(.conclusion=="failure")] | length) / length)}] | sort_by(.day)' runs.json > daily.json
+          jq '[.[:-1][].rate]' daily.json > history.json
+          jq '.[-1].rate // 0' daily.json > current.txt
+      - id: detect
+        name: Band (mean/σ, no model)
+        run: |
+          out=$(dotnet run scripts/aico-ci.cs -- detect --metric ci_failure_rate --history history.json --current "$(cat current.txt)")
+          echo "$out"
+          {
+            echo "evidence<<DETECT_EOF"
+            echo "$out"
+            echo "DETECT_EOF"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Detection"
+            echo '```json'
+            echo "$out"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  diagnose:
+    needs: detect
+    if: needs.detect.outputs.band == 'diagnose' || needs.detect.outputs.band == 'act'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          additional_permissions: |
+            actions: read
+          prompt: |
+            Use the incident-diagnoser agent. Detection output:
+            ${{ needs.detect.outputs.evidence }}
+
+            Read-only. Create ONE issue with the "Anomaly (automated)" form fields: Detection (the JSON above) and
+            Diagnosis (intent draft). Label it stage:maintain, and add `critical` if customer-facing or data-affecting.
+          claude_args: |
+            --model claude-sonnet-5-5
+            --max-turns 20
+            --allowedTools Read,Grep,Glob,Bash(git log:*),Bash(git show:*),Bash(gh run list:*),Bash(gh run view:*),Bash(gh issue create:*)
+
+  act:
+    # 3σ: a gated write route. The fix goes through a PR (and therefore template-verify + review + CODEOWNERS);
+    # Claude never pushes to main or deploys. CI failure rate is not a critical metric; for critical metrics
+    # (e.g. prod 5xx) set CNU_AICO_LABELS=critical and the policy routes the work to a human instead.
+    needs: [detect, diagnose]
+    if: needs.detect.outputs.band == 'act'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    env:
+      CNU_AICO_CONTEXT: agent-fix
+      CNU_AICO_LABELS: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            A 3σ anomaly was detected and diagnosed (see the newest open issue labelled stage:maintain).
+            If that issue is labelled critical: stop and comment that a human must take it (policy.yaml).
+            Otherwise: if a runbook in ops/runbooks/ applies, name it in a comment (humans run it).
+            Else write a failing test first, fix the cause, and open a PR "fix: <slug>" linking the issue.
+            Call match_template first; use generate_* tools where they apply.
+          claude_args: |
+            --model claude-sonnet-5-5
+            --max-turns 40
+            --mcp-config .mcp.json

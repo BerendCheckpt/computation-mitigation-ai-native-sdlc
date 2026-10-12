@@ -1,0 +1,27 @@
+# Playbook roles mapped onto GitHub. Replace the team handles with your org's teams.
+# Branch protection / rulesets require CODEOWNERS approval, so these ARE the human gates.
+
+# Default
+*                                   @cnu/engineering
+
+# Stage 1–2 artifacts: the product owner accepts intents and approves specs
+/work/**/intent.md                  @cnu/product-owners
+/work/**/spec.md                    @cnu/product-owners @cnu/tech-leads
+# Stage 3: the tech lead approves plans
+/work/**/plan.md                    @cnu/tech-leads
+
+# Standards, guardrails and review policy
+/CLAUDE.md                          @cnu/tech-leads
+/REVIEW.md                          @cnu/tech-leads
+/policy.yaml                        @cnu/tech-leads @cnu/security
+/.claude/                           @cnu/tech-leads
+/.claude/skills/security-policy/    @cnu/security
+/.github/                           @cnu/tech-leads @cnu/platform-team
+
+# Deterministic layer: template owners + tech lead approve every template change (crystallization gate)
+/templates/                         @cnu/platform-team @cnu/tech-leads
+/schemas/                           @cnu/platform-team
+/src/                               @cnu/platform-team
+
+# Maintain loop
+/ops/                               @cnu/sre @cnu/tech-leads

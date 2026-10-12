@@ -1,0 +1,77 @@
+# Executable spec for a crystallized flow. Validated by schemas/template-spec.schema.json.
+# Everything a generator needs is here, so no model is required to produce the code.
+id: minimal-api-endpoint
+version: 1.0.0
+state: crystallized
+title: Minimal API CRUD endpoint group
+description: >
+  .NET 10 minimal API endpoint group (list/get/create/delete) for one entity, with a store abstraction,
+  an in-memory store, shipped unit tests and suggested integration tests.
+owners: ["@cnu/platform-team"]
+estimatedOutputTokens: 3500
+
+intent:
+  keywords:
+    - add minimal api endpoint
+    - create crud endpoint
+    - rest route entity
+    - endpoint group
+  synonyms:
+    add: [create, scaffold, generate, introduce]
+    endpoint: [endpoints, handler, handlers, controller]
+    api: [webapi, rest]
+    entity: [resource, model]
+  negatives: [design, strategy, architecture, refactor, why, explain, compare, migrate, investigate, debug]
+
+parameters:
+  - name: entity
+    type: string
+    description: Singular entity name in PascalCase, e.g. Order.
+    required: true
+    pattern: "^[A-Z][A-Za-z0-9]*$"
+    extract: "\\b(?:entity|resource|model)\\s+([A-Za-z][A-Za-z0-9]*)"
+    transform: pascal
+  - name: project
+    type: string
+    description: Target web project / root namespace, e.g. Shop.Api.
+    required: true
+    pattern: "^[A-Z][A-Za-z0-9]*(\\.[A-Z][A-Za-z0-9]*)*$"
+    extract: "\\b(?:project|service)\\s+([A-Za-z][A-Za-z0-9.]*[A-Za-z0-9])"
+  - name: route
+    type: string
+    description: Route prefix of the endpoint group.
+    required: false
+    pattern: "^/[a-z0-9/_-]*$"
+    extract: "\\b(?:route|path)\\s+(/[A-Za-z0-9/_-]*)"
+    transform: lower
+    default: "/{{ entity | string.downcase | plural }}"
+
+requirements:
+  - GET {route} lists all items; GET {route}/{id} returns 404 when unknown.
+  - POST {route} validates that Name is not empty and returns 201 with a Location header.
+  - DELETE {route}/{id} returns 204, or 404 when unknown.
+  - Handlers are static methods returning TypedResults so they are unit-testable without a host.
+  - Storage is behind I{Entity}Store; the in-memory store is thread-safe.
+
+preconditions:
+  - Target project is an ASP.NET Core (.NET 10) web project named {project}.
+  - Program.cs calls builder.Services.Add{Entity}Store() and app.Map{Entities}Endpoints().
+
+outputs:
+  - template: content/Entity.cs.scriban
+    path: "src/{{ project }}/Features/{{ entity | plural }}/{{ entity }}.cs"
+  - template: content/Store.cs.scriban
+    path: "src/{{ project }}/Features/{{ entity | plural }}/{{ entity }}Store.cs"
+  - template: content/Endpoints.cs.scriban
+    path: "src/{{ project }}/Features/{{ entity | plural }}/{{ entity }}Endpoints.cs"
+
+tests:
+  unit:
+    - template: tests/unit/EndpointsTests.cs.scriban
+      path: "tests/{{ project }}.Tests/Features/{{ entity | plural }}/{{ entity }}EndpointsTests.cs"
+  integrationSuggested:
+    - template: tests/integration.suggested/ApiTests.cs.scriban
+      path: "tests/{{ project }}.IntegrationTests/Features/{{ entity | plural }}/{{ entity }}ApiTests.cs"
+
+postActions:
+  - "dotnet format src/{{ project }} --include Features/{{ entity | plural }}/"

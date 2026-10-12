@@ -1,0 +1,5 @@
+namespace {{ project }}.Features.{{ entity | plural }};
+
+public sealed record {{ entity }}(Guid Id, string Name);
+
+public sealed record Create{{ entity }}Request(string Name);

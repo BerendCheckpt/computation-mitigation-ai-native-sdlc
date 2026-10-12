@@ -1,0 +1,37 @@
+# Stage 3 — Build. An approved (merged) spec.md starts plan mode. Planning is done by an engineer in an
+# interactive Claude Code plan-mode session, so this workflow uses NO model: it only opens a tracking issue.
+name: stage-3-plan-notify
+
+on:
+  push:
+    branches: [main]
+    paths: ["work/**/spec.md"]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Open a "plan" issue per approved spec
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for spec in $(git diff --name-only HEAD~1 HEAD -- 'work/**/spec.md'); do
+            dir=$(dirname "$spec")
+            [ -f "$dir/plan.md" ] && continue
+            {
+              echo "Spec approved: \`$spec\`."
+              echo
+              echo "Next: start a **plan-mode** session (\`claude --permission-mode plan\`), give it \`$dir/intent.md\` and \`$spec\`,"
+              echo "question the plan, and commit the approved plan as \`$dir/plan.md\` (tech lead approves the PR)."
+              echo "Crystallized templates referenced in the spec are generated through the \`cnu-aico\` MCP tools, not re-written."
+              echo "Optional: \`echo $dir/plan.md > .aico/active-plan\` enables the plan-scope hook while implementing."
+            } > body.md
+            gh issue create --title "plan: $(basename "$dir")" --label "stage:plan" --body-file body.md
+          done

@@ -1,0 +1,24 @@
+{
+  "templateId": "minimal-api-endpoint",
+  "note": "ILLUSTRATIVE SAMPLE DATA for the reference implementation. Replace with real PRs, runs and approvers when crystallizing your first template.",
+  "sourcePullRequests": [
+    "example/repo#101",
+    "example/repo#117",
+    "example/repo#123"
+  ],
+  "approvals": [
+    { "by": "@template-owner", "role": "template-owner", "at": "2026-10-01T09:00:00+00:00", "pullRequest": "example/repo#130" },
+    { "by": "@tech-lead", "role": "tech-lead", "at": "2026-10-01T10:30:00+00:00", "pullRequest": "example/repo#130" }
+  ],
+  "runs": [
+    { "runId": "sample-1", "at": "2026-09-20T12:00:00+00:00", "pullRequest": "example/repo#101", "gates": { "build": true, "unitTests": true, "analyzers": true, "coverage": true, "securityScan": true } },
+    { "runId": "sample-2", "at": "2026-09-24T12:00:00+00:00", "pullRequest": "example/repo#117", "gates": { "build": true, "unitTests": true, "analyzers": true, "coverage": true, "securityScan": true } },
+    { "runId": "sample-3", "at": "2026-09-28T12:00:00+00:00", "pullRequest": "example/repo#123", "gates": { "build": true, "unitTests": true, "analyzers": true, "coverage": true, "securityScan": true } }
+  ],
+  "successfulPrompts": [
+    { "prompt": "Add a minimal API endpoint for entity Customer in project Shop.Api", "parameters": { "entity": "Customer", "project": "Shop.Api" } },
+    { "prompt": "Create CRUD endpoints for resource Invoice at route /invoices in service Billing.Api", "parameters": { "entity": "Invoice", "project": "Billing.Api", "route": "/invoices" } },
+    { "prompt": "Scaffold a REST endpoint group for entity Label in project Labels.Api", "parameters": { "entity": "Label", "project": "Labels.Api" } }
+  ],
+  "demoted": false
+}
