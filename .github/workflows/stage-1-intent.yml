@@ -5,7 +5,9 @@ name: stage-1-intent
 
 on:
   issues:
-    types: [opened, labeled]
+    # Only `labeled`: issues created from the form get a `labeled` event for stage:intent too,
+    # so listening to `opened` as well would start Claude twice for the same issue.
+    types: [labeled]
   issue_comment:
     types: [created]
 
@@ -22,8 +24,9 @@ concurrency:
 jobs:
   intent:
     if: >
-      contains(github.event.issue.labels.*.name, 'stage:intent') && !github.event.issue.pull_request &&
-      (github.event_name == 'issues' || contains(github.event.comment.body, '@claude'))
+      !github.event.issue.pull_request && contains(github.event.issue.labels.*.name, 'stage:intent') &&
+      ((github.event_name == 'issues' && github.event.label.name == 'stage:intent') ||
+       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
