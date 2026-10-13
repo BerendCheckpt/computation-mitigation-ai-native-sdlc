@@ -1,0 +1,82 @@
+# Measures the output tokens a crystallized template actually avoids (scripts/measure-baseline.cs).
+# Runs the same task N times without the template (the model writes the code) and N times with it, keeps only runs
+# that pass the same acceptance commands, and proposes the medians as `measuredOutputTokens` in a PR.
+# Spends real tokens: about 2 × runs Claude sessions. Run it manually when a template is crystallized, when its
+# version changes, or when the default model changes.
+name: measure-baseline
+
+on:
+  workflow_dispatch:
+    inputs:
+      template:
+        description: Template id (needs measurements/<id>.yaml)
+        required: true
+        default: minimal-api-endpoint
+      runs:
+        description: Runs per arm (≥ 3; 5 recommended)
+        required: true
+        default: "5"
+      model:
+        description: Model to measure with (results are only valid for this model)
+        required: true
+        default: claude-sonnet-5-5
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: measure-baseline-${{ inputs.template }}
+  cancel-in-progress: false
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+      - id: measure
+        name: Measure (control vs template)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: >
+          dotnet run scripts/measure-baseline.cs --
+          --config "measurements/${{ inputs.template }}.yaml"
+          --runs "${{ inputs.runs }}"
+          --model "${{ inputs.model }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: measurement-${{ inputs.template }}-${{ github.run_id }}
+          path: measurements/*.json
+          if-no-files-found: ignore
+      - name: Propose the measurement in a PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVIDENCE: ${{ steps.measure.outputs.evidence }}
+          AVOIDED: ${{ steps.measure.outputs.avoided }}
+        run: |
+          branch="measure/${{ inputs.template }}-${{ github.run_id }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add "$EVIDENCE"
+          git commit -m "measure: ${{ inputs.template }} avoids $AVOIDED output tokens per run (${{ inputs.model }})"
+          git push -u origin "$branch"
+          {
+            echo "Measured token baseline for \`${{ inputs.template }}\` with \`${{ inputs.model }}\` (${{ inputs.runs }} runs per arm)."
+            echo
+            cat "$GITHUB_STEP_SUMMARY"
+            echo
+            echo "**Before merging:** check the raw runs in \`$EVIDENCE\`, then add the YAML block above to"
+            echo "\`templates/${{ inputs.template }}/spec.yaml\` in this PR. From then on, KPIs report this template's savings as *measured*."
+          } > body.md
+          gh pr create --title "measure: ${{ inputs.template }} token baseline" --body-file body.md --label kpi
