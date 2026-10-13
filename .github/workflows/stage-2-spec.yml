@@ -32,6 +32,7 @@ jobs:
           todo=""; for f in $files; do [ -f "$(dirname "$f")/spec.md" ] || todo="$todo $f"; done
           echo "todo=${todo# }" >> "$GITHUB_OUTPUT"
       - if: steps.changed.outputs.todo != ''
+        id: claude
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -47,3 +48,12 @@ jobs:
             --max-turns 40
             --mcp-config '{"mcpServers":{"cnu-aico":{"type":"stdio","command":"dotnet","args":["run","--project","src/Cnu.AICO.McpServer","--"],"env":{"CNU_AICO_CONTEXT":"build"}}}}'
             --allowedTools Read,Write,Edit,Glob,Grep,Bash(git:*),Bash(gh pr create:*),mcp__cnu-aico__match_template,ReadMcpResourceTool
+      - name: Record token usage (ledger)
+        if: always() && steps.claude.outputs.execution_file != ''
+        uses: ./.github/actions/aico-record-usage
+        with:
+          execution-file: ${{ steps.claude.outputs.execution_file }}
+          source: stage-2-spec
+          context: build
+          prompt: "Write specs for accepted intents: ${{ steps.changed.outputs.todo }}"
+          ref: ""
