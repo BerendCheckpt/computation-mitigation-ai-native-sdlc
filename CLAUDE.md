@@ -19,9 +19,6 @@ AI-native SDLC on GitHub with a deterministic layer: crystallized, human-approve
 - `scripts/aico-ci.cs`, `.claude/hooks/aico-hook.cs` — .NET 10 file-based scripts used by CI and hooks.
 - `samples/RouterClient` — OPTIONAL sample (ADR 0003), not production.
 
-## Terminology
-- 'Wiki' means [specify: the GitHub Wiki repo (<repo>.wiki.git) / the docs site / a /wiki folder]. If a term like this is ambiguous, ask with AskUserQuestion before building anything.
-
 ## CI Safety
 - After editing .gitignore, workflow YAML, or anything in .github/, run `git status --ignored` and `actionlint` (if available) and confirm that the files CI needs are still tracked, before committing.
 - Make file edits with the Edit tool, not sed/awk/heredoc scripts. Scripted edits have mangled lines before.
