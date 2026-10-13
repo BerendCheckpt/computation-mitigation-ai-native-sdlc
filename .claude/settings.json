@@ -49,6 +49,15 @@
     ],
     "PostToolUse": [
       {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path'); case \"$f\" in *.github/workflows/*) actionlint \"$f\" || exit 2;; *.gitignore) git status --short --ignored | head -20;; esac"
+          }
+        ]
+      },
+      {
         "matcher": "Edit|Write|MultiEdit",
         "hooks": [
           { "type": "command", "command": "dotnet run .claude/hooks/aico-hook.cs -- format", "timeout": 60 }
