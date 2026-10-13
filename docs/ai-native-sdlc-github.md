@@ -53,10 +53,20 @@ Legend: ◆ = deterministic (no model) · ● = model
 | **4 Test** | Every push | ◆ build, tests, golden files, routing evals, template validation, template self-test (`ci.yml`) | Required checks | ◆ template output verified by **regenerate + diff** |
 | **5 Deploy / Review** | PR opened or updated | ◆ `template-verify.yml`, then ● `claude-review.yml` following `REVIEW.md` (findings ranked by severity). Humans review `critical`/`regulated`. `@claude` in PR comments for fixes. | Ruleset approvals; prod environment gate; one-line rollback | ◆ **AI review skipped for template-only PRs**; ● review only hand-written lines |
 | **6 Maintain** | Hourly `maintain-detect.yml` | ◆ detection script (mean/σ). `ops/bands.md` bands: 1σ log · 2σ ● read-only diagnosis → anomaly issue · 3σ ● PR through review, or a pre-approved runbook | Diagnosis is written as a new intent; humans triage | ◆ runbooks are scripts; ● fixes only when not `critical` (otherwise human) |
+| **6 Maintain (filed defects)** | Someone labels an issue `agent-fix-allowed` (`stage-6-agent-fix.yml`); later `@claude` comments continue it | ● Claude finds the root cause, writes a failing test first, fixes it and opens a `Fixes #N` PR. `critical` → ◆ policy comment, no model | Fix PR through template-verify, review and CODEOWNERS | ● model only for non-critical fixes; ◆ `match_template` first |
 
 ### Artifact chain (what triggers what)
 - Issue `stage:intent` → `intent.md` PR → merge → **spec workflow** → `spec.md` PR → merge → **plan issue** → `plan.md` PR → merge → implementation PR → `template-verify` (+ AI review if needed) → merge → `ci` → `deploy` (dev auto, prod gated).
 - Anomaly ≥ 2σ → anomaly issue (intent draft) → triage → back to Stage 1.
+- Defect issue (bug with a stack trace or clear reproduction) → label `stage:maintain` + `agent-fix-allowed` → fix PR. No intent or spec: a bug fix restores intended behaviour, so it needs no new design. Use the intent path (Stage 1) only when the "bug" is really a missing or changed requirement.
+
+### Which stage fits an issue?
+| The issue is… | Labels | Path |
+|---|---|---|
+| A new capability, or a change to intended behaviour | `stage:intent` | Stage 1 → 2 → 3 |
+| A defect in existing behaviour, non-critical, with enough to reproduce | `stage:maintain`, `agent-fix-allowed` | Stage 6 agent fix → PR |
+| A defect that is customer-facing, data-affecting or a security issue | `stage:maintain`, `critical` | Human fix → human-reviewed PR |
+| Found by a metric breach | (filed by `maintain-detect`) | Triage, then one of the rows above |
 
 ### Stage 1 in detail (requirements analysts)
 1. The analyst opens **New intent** and fills in the problem, not the solution.

@@ -1,0 +1,84 @@
+# Stage 6 — Maintain, for defects filed by people (maintain-detect handles the ones found by metrics).
+# Labelling an issue `agent-fix-allowed` lets Claude reason about it and fix it (policy.yaml context: agent-fix),
+# but only through a PR: failing test first, then the fix, then template-verify + review + CODEOWNERS.
+# `critical` issues are never fixed autonomously: a deterministic job comments and stops; no model is invoked.
+name: stage-6-agent-fix
+
+on:
+  issues:
+    types: [labeled]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+
+concurrency:
+  group: agent-fix-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  refuse-critical:
+    # Deterministic policy gate (policy.yaml rule critical-needs-human).
+    if: >
+      !github.event.issue.pull_request && github.event_name == 'issues' &&
+      github.event.label.name == 'agent-fix-allowed' &&
+      contains(github.event.issue.labels.*.name, 'critical')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain why no agent will fix this
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          gh issue comment "$ISSUE" -R "$GITHUB_REPOSITORY" --body "This issue is labelled \`critical\`, so no agent will fix it autonomously (policy.yaml, rule \`critical-needs-human\`). A human should take it through a human-reviewed PR. Remove \`agent-fix-allowed\` to clear this notice."
+
+  fix:
+    if: >
+      !github.event.issue.pull_request &&
+      contains(github.event.issue.labels.*.name, 'agent-fix-allowed') &&
+      !contains(github.event.issue.labels.*.name, 'critical') &&
+      !contains(github.event.issue.labels.*.name, 'stage:intent') &&
+      ((github.event_name == 'issues' && github.event.label.name == 'agent-fix-allowed') ||
+       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') && github.event.comment.user.type != 'Bot'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: MCP config with the agent-fix policy context
+        env:
+          LABELS: ${{ join(github.event.issue.labels.*.name, ',') }}
+        run: |
+          jq -n --arg labels "$LABELS" '{mcpServers: {"cnu-aico": {type: "stdio", command: "dotnet",
+            args: ["run", "--project", "src/Cnu.AICO.McpServer", "--"],
+            env: {CNU_AICO_CONTEXT: "agent-fix", CNU_AICO_LABELS: $labels}}}}' > "$RUNNER_TEMP/aico-mcp.json"
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          track_progress: true
+          prompt: |
+            REPO: ${{ github.repository }}
+            ISSUE: #${{ github.event.issue.number }}
+
+            You are a maintenance agent allowed to fix this NON-critical issue (policy.yaml context: agent-fix).
+            1. Read the issue and all comments. Find the root cause yourself: the fix the issue suggests may be wrong.
+            2. Call match_template first; use a generate_* tool where a crystallized template applies.
+            3. Write a failing regression test first (test-writer agent), then fix the root cause.
+               Never edit files whose first line contains `aico:generated`, and never touch the paths listed in
+               .claude/hooks/protected-paths.txt. If the fix needs one of those, comment on the issue and stop.
+            4. Run `dotnet build Cnu.AICO.slnx` and `dotnet test Cnu.AICO.slnx`; both must pass.
+            5. If the mistake could happen again, add one line under "Known mistakes" in CLAUDE.md.
+            6. Open a PR titled "fix: <short description>" whose body starts with "Fixes #${{ github.event.issue.number }}"
+               and covers root cause, change and verification. Add labels bug and stage:maintain.
+            If you cannot find the root cause with confidence, post your diagnosis as an issue comment instead of a PR.
+          claude_args: |
+            --model claude-sonnet-5-5
+            --max-turns 40
+            --mcp-config ${{ runner.temp }}/aico-mcp.json
+            --allowedTools Read,Write,Edit,Glob,Grep,Task,Bash(dotnet:*),Bash(git:*),Bash(gh pr create:*),Bash(gh issue comment:*),mcp__cnu-aico__match_template,mcp__cnu-aico__generate_*
