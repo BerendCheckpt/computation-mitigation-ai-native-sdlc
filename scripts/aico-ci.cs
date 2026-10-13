@@ -7,6 +7,9 @@
 //   dotnet run scripts/aico-ci.cs -- generate minimal-api-endpoint --out <dir> entity=Order project=Shop.Api
 //   dotnet run scripts/aico-ci.cs -- detect --metric ci_failure_rate --history ops/metrics/ci_failure_rate.json --current 0.08
 //   dotnet run scripts/aico-ci.cs -- kpi --logs .aico --out reports/kpi.md
+//   dotnet run scripts/aico-ci.cs -- ledger record --result <claude-result.json> --path model --source stage-6-agent-fix [--out <fragment.jsonl>]
+//   dotnet run scripts/aico-ci.cs -- ledger merge --from <dir-with-fragments>
+//   dotnet run scripts/aico-ci.cs -- ledger report | ledger check      → reports/token-ledger.md (check: fails if stale)
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
@@ -16,11 +19,13 @@ using Cnu.AICO.Core.Ops;
 using Cnu.AICO.Core.Specs;
 using Cnu.AICO.Core.Telemetry;
 
+CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
 var command = args.FirstOrDefault() ?? "";
 string? Opt(string name) => Array.IndexOf(args, name) is var i && i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
 var templatesPath = Opt("--templates") ?? "templates";
 var log = new DecisionLog(Opt("--log") ?? Environment.GetEnvironmentVariable("CNU_AICO_LOG") ?? ".aico/decisions.jsonl");
 var json = new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true };
+var ledgerPath = Opt("--ledger") ?? Environment.GetEnvironmentVariable("CNU_AICO_LEDGER") ?? TokenLedger.DefaultPath;
 
 return command switch
 {
@@ -30,6 +35,7 @@ return command switch
     "generate" => Generate(),
     "detect" => Detect(),
     "kpi" => Kpi(),
+    "ledger" => Ledger(),
     _ => Usage(),
 };
 
@@ -99,9 +105,17 @@ int Generate()
     var result = TemplateGenerator.Generate(entry.Spec, parameters);
     foreach (var path in TemplateGenerator.WriteTo(Opt("--out") ?? ".", result, overwrite: args.Contains("--overwrite")))
         Console.WriteLine(path);
-    var avoided = entry.Spec.AvoidedOutputTokens();
-    log.Append(new DecisionEntry { Tool = entry.Spec.ToolName, Route = Routes.Deterministic, TemplateId = id, Context = "ci", Confidence = 1,
-        TokensAvoided = avoided.Tokens, BaselineSource = avoided.Source });
+    var avoided = entry.Spec.AvoidedOutputTokens(TokenLedger.Load(ledgerPath));
+    log.Append(new DecisionEntry
+    {
+        Tool = entry.Spec.ToolName,
+        Route = Routes.Deterministic,
+        TemplateId = id,
+        Context = "ci",
+        Confidence = 1,
+        TokensAvoided = avoided.Tokens,
+        BaselineSource = avoided.Source
+    });
     return 0;
 }
 
@@ -125,7 +139,7 @@ int Kpi()
         : [];
     var kwh = double.Parse(Environment.GetEnvironmentVariable("CNU_AICO_KWH_PER_MTOK") ?? "0.4", CultureInfo.InvariantCulture);
     var grams = double.Parse(Environment.GetEnvironmentVariable("CNU_AICO_G_CO2_PER_KWH") ?? "300", CultureInfo.InvariantCulture);
-    var md = KpiReport.Build(entries, TemplateRegistry.Load(templatesPath), kwh, grams);
+    var md = KpiReport.Build(entries, TemplateRegistry.Load(templatesPath), kwh, grams, TokenLedger.Load(ledgerPath));
     var outPath = Opt("--out");
     if (outPath is null)
         Console.WriteLine(md);
@@ -136,6 +150,135 @@ int Kpi()
     }
     return 0;
 }
+
+// Token ledger (ledger/token-usage.jsonl): append-only, committed, audited through git history.
+int Ledger()
+{
+    var reportPath = Opt("--report") ?? "reports/token-ledger.md";
+    switch (args.ElementAtOrDefault(1))
+    {
+        case "record":
+            {
+                // Never fails the calling workflow: a missing or unreadable result is a warning, not an error.
+                var resultFile = Opt("--result");
+                if (resultFile is null || !File.Exists(resultFile))
+                {
+                    Console.WriteLine($"::warning::No Claude result file at '{resultFile}'; nothing recorded in the token ledger.");
+                    return 0;
+                }
+                ClaudeRunResult r;
+                try { r = ClaudeResultParser.Parse(File.ReadAllText(resultFile)); }
+                catch (Exception ex) when (ex is InvalidDataException or JsonException or InvalidOperationException)
+                {
+                    Console.WriteLine($"::warning::Could not read usage from '{resultFile}': {ex.Message}");
+                    return 0;
+                }
+
+                var prompt = Opt("--prompt")
+                    ?? (Opt("--prompt-file") is { } pf && File.Exists(pf) ? File.ReadAllText(pf) : null)
+                    ?? Environment.GetEnvironmentVariable("CNU_AICO_PROMPT");
+                if (string.IsNullOrWhiteSpace(prompt))
+                    prompt = null;
+                var registry = TemplateRegistry.Load(templatesPath);
+                var matcher = new TemplateMatcher(registry);
+                // The cnu-aico server's decision log of this job says whether the run called a template tool:
+                // if it did, this is a deterministic-path run of that template; otherwise a model-path run.
+                var generated = Opt("--decisions") is { } d && File.Exists(d)
+                    ? DecisionLog.Read(d).LastOrDefault(e => e.Tool.StartsWith("generate_", StringComparison.Ordinal) && e.Route == Routes.Deterministic)
+                    : null;
+                var usedTemplate = generated is not null;
+                var path = Opt("--path") ?? (usedTemplate ? LedgerPaths.Deterministic : LedgerPaths.Model);
+                // A model-path run is attributed to the matcher's best candidate, so that once that template is
+                // crystallized, its first deterministic run finds this run as its baseline.
+                var templateId = Opt("--template") ?? generated?.TemplateId ?? (prompt is null ? null : matcher.Match(prompt).TemplateId);
+
+                var run = LedgerRun.From(r, TokenLedger.NewId("run"), path, Opt("--source") ?? "manual") with
+                {
+                    Context = Opt("--context") is { Length: > 0 } ctx ? ctx : null,
+                    Prompt = TokenLedger.Preview(prompt),
+                    PromptKey = prompt is null ? null : matcher.Normalizer.CacheKey(prompt),
+                    TemplateId = templateId,
+                    TemplateVersion = templateId is null ? null : registry.Find(templateId)?.Spec.Version,
+                    UsedTemplate = usedTemplate,
+                    Accepted = Opt("--accepted") is { } a ? bool.Parse(a) : null,
+                    Ref = Opt("--ref") is { Length: > 0 } rf ? rf : null,
+                    GitSha = GitSha(),
+                    WorkflowRun = WorkflowRun(),
+                };
+                Console.WriteLine($"{run.Id}: {run.Path} {run.Source} output={run.Tokens.Output} total={run.Tokens.Total} cost≈{run.CostUsdEstimate} template={run.TemplateId ?? "-"}");
+                GitHubOutput("run_id", run.Id);
+                if (Opt("--out") is { } fragment)
+                {
+                    // Workflows write a fragment; the comparison happens when kpi-report merges it into the ledger.
+                    TokenLedger.Load(fragment).Append(run);
+                    return 0;
+                }
+                if (TokenLedger.Load(ledgerPath).Record(run) is { } cmp)
+                    Console.WriteLine($"{cmp.Id}: saved {cmp.Saved.Output:N0} output tokens vs {cmp.BaselineRunId} ({cmp.Correspondence}, {(cmp.Accepted ? "accepted" : "rejected: " + cmp.Notes)})");
+                return 0;
+            }
+
+        case "merge":
+            {
+                var from = Opt("--from") ?? throw new ArgumentException("--from <directory with *.jsonl fragments> is required");
+                var ledger = TokenLedger.Load(ledgerPath);
+                var incoming = Directory.Exists(from)
+                    ? Directory.EnumerateFiles(from, "*.jsonl", SearchOption.AllDirectories).SelectMany(TokenLedger.ReadEntries).OrderBy(e => e.At).ToList()
+                    : [];
+                // Oldest first, through Record: a deterministic run is compared with the newest baseline that existed
+                // before it, including model runs merged earlier in this same batch.
+                var before = ledger.Entries.Count;
+                var comparisons = 0;
+                foreach (var e in incoming)
+                {
+                    if (e is LedgerRun run)
+                        comparisons += ledger.Record(run) is null ? 0 : 1;
+                    else
+                        ledger.Append(e);
+                }
+                var added = ledger.Entries.Count - before;
+                Console.WriteLine($"Merged {incoming.Count} fragment entr{(incoming.Count == 1 ? "y" : "ies")} into {ledgerPath}: {added} new ledger entries, {comparisons} comparison(s).");
+                GitHubOutput("added", added.ToString(CultureInfo.InvariantCulture));
+                return 0;
+            }
+
+        case "report":
+            {
+                var md = TokenLedger.Load(ledgerPath).Report(TemplateRegistry.Load(templatesPath));
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(reportPath))!);
+                File.WriteAllText(reportPath, md);
+                Console.WriteLine($"Wrote {reportPath}.");
+                return 0;
+            }
+
+        case "check":
+            {
+                var expected = TokenLedger.Load(ledgerPath).Report(TemplateRegistry.Load(templatesPath));
+                var actual = File.Exists(reportPath) ? File.ReadAllText(reportPath).Replace("\r\n", "\n") : "";
+                if (actual == expected)
+                    return 0;
+                Console.WriteLine($"::error file={reportPath}::{reportPath} is out of date with {ledgerPath}. Run: dotnet run scripts/aico-ci.cs -- ledger report");
+                return 1;
+            }
+
+        default:
+            Console.Error.WriteLine("usage: aico-ci ledger <record|merge|report|check> [options]");
+            return 2;
+    }
+}
+
+static string? GitSha()
+{
+    if (Environment.GetEnvironmentVariable("GITHUB_SHA") is { Length: > 0 } sha)
+        return sha;
+    try { return Git("rev-parse", "HEAD").Trim(); }
+    catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) { return null; }
+}
+
+static string? WorkflowRun() =>
+    Environment.GetEnvironmentVariable("GITHUB_RUN_ID") is { Length: > 0 } id
+        ? $"{Environment.GetEnvironmentVariable("GITHUB_SERVER_URL")}/{Environment.GetEnvironmentVariable("GITHUB_REPOSITORY")}/actions/runs/{id}"
+        : null;
 
 static string Git(params string[] gitArgs)
 {
@@ -159,6 +302,6 @@ static void GitHubSummary(string markdown)
 
 static int Usage()
 {
-    Console.Error.WriteLine("usage: aico-ci <validate|verify|match|generate|detect|kpi> [options]");
+    Console.Error.WriteLine("usage: aico-ci <validate|verify|match|generate|detect|kpi|ledger> [options]");
     return 2;
 }

@@ -56,16 +56,6 @@ public static partial class TemplateValidator
             }
         }
 
-        if (spec.MeasuredOutputTokens is { } m)
-        {
-            Check(m.N >= Telemetry.TokenMeasurement.MinAcceptedRuns, $"measuredOutputTokens.n must be ≥ {Telemetry.TokenMeasurement.MinAcceptedRuns}.");
-            Check(m.Baseline > 0 && m.Deterministic >= 0, "measuredOutputTokens needs a positive baseline and a non-negative deterministic value.");
-            Check(m.Model.Length > 0 && m.Date.Length > 0, "measuredOutputTokens needs model and date (results depend on both).");
-            var repoRoot = Path.GetFullPath(Path.Combine(spec.Directory, "..", ".."));
-            Check(m.Evidence.Length > 0 && File.Exists(Path.Combine(repoRoot, m.Evidence)),
-                $"measuredOutputTokens.evidence '{m.Evidence}' must point to the committed measurement file.");
-        }
-
         if (spec.State is TemplateState.Approved or TemplateState.Crystallized)
         {
             var prov = entry.Provenance;

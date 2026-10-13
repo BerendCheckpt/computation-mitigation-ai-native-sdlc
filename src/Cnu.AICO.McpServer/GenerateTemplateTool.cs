@@ -82,7 +82,7 @@ public sealed class GenerateTemplateTool : McpServerTool
             }
         }
 
-        var avoided = entry.Spec.AvoidedOutputTokens();
+        var avoided = entry.Spec.AvoidedOutputTokens(_aico.Ledger);
         _aico.Log.Append(new DecisionEntry
         {
             Tool = ProtocolTool.Name,

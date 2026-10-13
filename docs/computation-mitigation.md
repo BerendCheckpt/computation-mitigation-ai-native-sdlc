@@ -93,25 +93,39 @@ See [ADR 0003](adr/0003-optional-mcp-client-router.md) and `samples/RouterClient
 recommended for high-volume automated paths, and not planned for now.
 
 ## 9. Measuring avoided tokens
-"Avoided" tokens can never be observed for a single request: a request cannot be both served by a template and not
-served. What can be measured is the counterfactual, under controlled conditions, and then applied per request.
+Savings are measured as a side effect of real work. There is no separate measurement job and no extra Claude call.
 
-**Method** (`scripts/measure-baseline.cs`, run by the `measure-baseline` workflow):
-1. A measurement config (`measurements/<template>.yaml`) fixes the prompt, a scaffold (fresh starting project) and
-   **acceptance commands** (build, minimum number of passing tests). The acceptance commands define "the same result".
-2. The task runs N times (default 5) in two arms, each in a fresh scratch project, alternating order:
-   - **control:** no template tools; the model writes the code itself;
-   - **template:** the `cnu-aico` MCP server is available; the model calls `generate_<id>`.
-3. Each run's token usage comes from `claude -p --output-format json`, the CLI's own usage report.
-4. Only accepted runs count. A control run that skips the tests, or a template run that ignores the tool, measures
-   something else and is dropped. At least 3 accepted runs per arm are required.
-5. Avoided per run = median output tokens (control) − median output tokens (template).
-6. The workflow commits the raw runs as evidence and opens a PR with a `measuredOutputTokens` block for `spec.yaml`.
-   A reviewer checks the runs and merges.
+**The token ledger.** Every Claude run in the workflows (`stage-1-intent`, `stage-2-spec`, `claude-review`,
+`claude-on-demand`, `stage-6-agent-fix`, `maintain-detect`) ends with the `aico-record-usage` step. It reads the run's
+final `result` message from claude-code-action's `execution_file`, following the
+[Agent SDK cost-tracking guide](https://code.claude.com/docs/en/agent-sdk/cost-tracking):
+- tokens from `modelUsage`, which includes subagents (`usage` covers only the top-level loop);
+- output tokens only from the result message, because per-step `output_tokens` are placeholders;
+- `total_cost_usd` stored as a **client-side estimate**, never as billing data;
+- crashed runs with zeroed totals flagged and never used as a baseline.
 
-**What changes in reporting:** each generation logs `tokensAvoided` with `baselineSource: measured` or `estimated`.
-The KPI report shows the two totals on separate rows, plus a per-template table of which baselines are measured, with
-n, model, date and evidence. Re-measure when the template version or the default model changes: both move the number.
+The step writes a ledger fragment, uploaded as an artifact. The weekly `kpi-report` merges the fragments into
+`ledger/token-usage.jsonl` (append-only, committed) and regenerates `reports/token-ledger.md`. CI fails if the overview
+is stale (`ledger check`). The ledger's git history is the audit trail: every change arrives through a reviewed PR,
+and every entry carries its commit SHA and workflow run.
+
+**Baseline and comparison:**
+1. **Baseline.** A run in which the model did the work (no template tool called) is recorded on the *model path*. It
+   is attributed to the matcher's best candidate template for the request, even if that template is not crystallized
+   yet.
+2. **Deterministic run.** After the template is approved and crystallized, a later request routes to it, and the run
+   calls `generate_<id>` (seen in the cnu-aico server's decision log of that job). It is recorded on the *deterministic
+   path*.
+3. **Comparison.** When the deterministic run enters the ledger, it is compared with the run it corresponds to: the
+   latest successful model-path run with the **same normalized prompt** (`exact-prompt`), otherwise the latest one for
+   the **same template** (`same-template`). The ledger stores the saved input, output and cache tokens and the saved
+   cost estimate. Negative values are kept: they mean the template path cost more.
+4. A comparison is **accepted** only if the deterministic run succeeded, actually called the template tool, and has
+   reliable totals. Rejected comparisons stay in the ledger with the reason.
+
+**What changes in reporting:** each generation logs `tokensAvoided` with `baselineSource: measured` (the latest accepted
+comparison for that template **version**) or `estimated` (`estimatedOutputTokens`). The KPI report shows both totals
+on separate rows. A new template version starts as "estimated" again until its first accepted comparison.
 
 **What stays an estimate:**
 - Templates without a measurement fall back to `estimatedOutputTokens`, labelled "estimated".

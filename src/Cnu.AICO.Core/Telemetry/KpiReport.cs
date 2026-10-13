@@ -8,7 +8,7 @@ namespace Cnu.AICO.Core.Telemetry;
 public static class KpiReport
 {
     /// <param name="kwhPerMillionTokens">Configurable energy factor; publish the value you use next to the report.</param>
-    public static string Build(IEnumerable<DecisionEntry> entries, TemplateRegistry? registry, double kwhPerMillionTokens, double gCo2PerKwh)
+    public static string Build(IEnumerable<DecisionEntry> entries, TemplateRegistry? registry, double kwhPerMillionTokens, double gCo2PerKwh, TokenLedger? ledger = null)
     {
         var list = entries.ToList();
         var ci = CultureInfo.InvariantCulture;
@@ -38,8 +38,8 @@ public static class KpiReport
         sb.Append(ci, $"| Output tokens avoided, measured baseline | {measured:N0} |\n");
         sb.Append(ci, $"| Output tokens avoided, estimated baseline | {estimated:N0} |\n");
         sb.Append(ci, $"| Energy avoided (estimate) | {kwh:0.###} kWh ({kwh * gCo2PerKwh / 1000:0.###} kg CO₂e) |\n\n");
-        sb.Append("_\"Measured\" means the template has a baseline from control runs (scripts/measure-baseline.cs): median output tokens " +
-                  "without the template minus median with it. \"Estimated\" means the template still uses its configured guess " +
+        sb.Append("_\"Measured\" means the token ledger holds an accepted comparison for the template version: a deterministic run " +
+                  "measured against the recorded non-deterministic run it corresponds to (reports/token-ledger.md). \"Estimated\" means the template still uses its configured guess " +
                   "(estimatedOutputTokens). Avoided tokens are a calibrated counterfactual: no single request can be both served and not served._\n\n");
         sb.Append(ci, $"_Energy factor: {kwhPerMillionTokens} kWh per million output tokens, {gCo2PerKwh} g CO₂e/kWh — always an estimate._\n\n");
 
@@ -61,11 +61,11 @@ public static class KpiReport
             sb.Append("\n## Token baselines\n\n| Template | Baseline | Avoided per run | Evidence |\n|---|---|---|---|\n");
             foreach (var e in registry.All.OrderBy(e => e.Spec.Id))
             {
-                var avoided = e.Spec.AvoidedOutputTokens();
-                var evidence = e.Spec.MeasuredOutputTokens is { } m
-                    ? $"n={m.N}, {m.Model}, {m.Date}, `{m.Evidence}`"
-                    : "not measured — run scripts/measure-baseline.cs";
-                sb.Append(ci, $"| {e.Spec.Id} | {avoided.Source} | {avoided.Tokens:N0} | {evidence} |\n");
+                var avoided = e.Spec.AvoidedOutputTokens(ledger);
+                var evidence = avoided.ComparisonId is { } id
+                    ? $"ledger comparison `{id}` (reports/token-ledger.md)"
+                    : "not measured — estimatedOutputTokens in spec.yaml";
+                sb.Append(ci, $"| {e.Spec.Id}@{e.Spec.Version} | {avoided.Source} | {avoided.Tokens:N0} | {evidence} |\n");
             }
         }
         return sb.ToString();

@@ -33,18 +33,19 @@ public sealed class TemplateSpec
     public List<string> PostActions { get; set; } = [];
 
     /// <summary>
-    /// Judgement-based guess of the output tokens a model would spend producing this result by hand.
-    /// Only used when <see cref="MeasuredOutputTokens"/> is absent; KPIs then label the figure "estimated".
+    /// Judgement-based guess of the output tokens a model would spend producing this result by hand. Only used until
+    /// the token ledger holds an accepted comparison for this template version; KPIs then label the figure "estimated".
     /// </summary>
     public int EstimatedOutputTokens { get; set; } = 2000;
 
-    /// <summary>Baseline measured by <c>scripts/measure-baseline.cs</c> (control runs vs template runs). Preferred over the estimate.</summary>
-    public MeasuredTokens? MeasuredOutputTokens { get; set; }
-
-    /// <summary>Output tokens avoided per deterministic run, and whether that figure is measured or estimated.</summary>
-    public AvoidedTokens AvoidedOutputTokens() => MeasuredOutputTokens is { } m
-        ? new AvoidedTokens(Math.Max(0, m.Baseline - m.Deterministic), BaselineSources.Measured)
-        : new AvoidedTokens(Math.Max(0, EstimatedOutputTokens - Telemetry.DecisionLog.ToolCallTokens), BaselineSources.Estimated);
+    /// <summary>
+    /// Output tokens avoided per deterministic run, and whether that figure is measured (latest accepted comparison in
+    /// the token ledger for this template version) or estimated (<see cref="EstimatedOutputTokens"/>).
+    /// </summary>
+    public AvoidedTokens AvoidedOutputTokens(Telemetry.TokenLedger? ledger = null) =>
+        ledger?.LatestAcceptedComparison(Id, Version) is { } c
+            ? new AvoidedTokens((int)c.Saved.Output, BaselineSources.Measured, c.Id)
+            : new AvoidedTokens(Math.Max(0, EstimatedOutputTokens - Telemetry.DecisionLog.ToolCallTokens), BaselineSources.Estimated, null);
 
     /// <summary>Optional per-template override of the matcher's minimum confidence (0..1).</summary>
     public double? MatchThreshold { get; set; }
@@ -57,30 +58,8 @@ public sealed class TemplateSpec
     public string ToolName => "generate_" + Id.Replace('-', '_');
 }
 
-/// <summary>
-/// A measured token baseline: median output tokens of N accepted runs of the same task without the template
-/// (the model writes the code) and with it (the model calls the generate tool). Avoided tokens can never be
-/// observed for one request, so this calibrated counterfactual is the best available measurement.
-/// </summary>
-public sealed class MeasuredTokens
-{
-    /// <summary>Median output tokens per task when the model writes the code itself.</summary>
-    public int Baseline { get; set; }
-
-    /// <summary>Median output tokens per task when the model uses the template tool.</summary>
-    public int Deterministic { get; set; }
-
-    /// <summary>Accepted runs per arm (minimum of both arms).</summary>
-    public int N { get; set; }
-
-    public string Model { get; set; } = "";
-    public string Date { get; set; } = "";
-
-    /// <summary>Repo-relative path of the raw measurement file.</summary>
-    public string Evidence { get; set; } = "";
-}
-
-public sealed record AvoidedTokens(int Tokens, string Source);
+/// <param name="ComparisonId">Ledger comparison the measured figure comes from; null for estimates.</param>
+public sealed record AvoidedTokens(int Tokens, string Source, string? ComparisonId);
 
 public static class BaselineSources
 {

@@ -9,8 +9,8 @@ description: >
   an in-memory store, shipped unit tests and suggested integration tests.
 owners: ["@cnu/platform-team"]
 # Judgement-based estimate, NOT measured. Floor: the generated files are 6,240 characters (~1,800 tokens at
-# ~3.5 characters per token), so a model writing them spends at least that. Replace with `measuredOutputTokens` from the measure-baseline workflow
-# (measurements/minimal-api-endpoint.yaml); KPIs label figures from this estimate as "estimated".
+# ~3.5 characters per token), so a model writing them spends at least that. Used only until the token ledger holds an
+# accepted comparison for this version (reports/token-ledger.md); KPIs label figures from this estimate as "estimated".
 estimatedOutputTokens: 3500
 
 intent:
