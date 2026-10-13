@@ -27,6 +27,8 @@ jobs:
         run: dotnet test Cnu.AICO.slnx -c Release --no-build --logger "trx;LogFileName=results.trx"
       - name: Validate template specs
         run: dotnet run scripts/aico-ci.cs -- validate
+      - name: Token ledger overview is up to date
+        run: dotnet run scripts/aico-ci.cs -- ledger check
       - name: Template self-test (generated code + shipped tests compile and pass)
         run: bash scripts/template-selftest.sh
       - uses: actions/upload-artifact@v4
