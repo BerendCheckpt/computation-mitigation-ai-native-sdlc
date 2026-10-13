@@ -61,7 +61,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 100
-      - uses: anthropics/claude-code-action@v1
+      - id: claude
+        uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           additional_permissions: |
@@ -76,6 +77,15 @@ jobs:
             --model claude-sonnet-5-5
             --max-turns 20
             --allowedTools Read,Grep,Glob,Bash(git log:*),Bash(git show:*),Bash(gh run list:*),Bash(gh run view:*),Bash(gh issue create:*)
+      - name: Record token usage (ledger)
+        if: always() && steps.claude.outputs.execution_file != ''
+        uses: ./.github/actions/aico-record-usage
+        with:
+          execution-file: ${{ steps.claude.outputs.execution_file }}
+          source: maintain-detect
+          context: diagnose
+          prompt: "Diagnose anomaly: ${{ needs.detect.outputs.evidence }}"
+          ref: ""
 
   act:
     # 3σ: a gated write route. The fix goes through a PR (and therefore template-verify + review + CODEOWNERS);
@@ -98,7 +108,8 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
-      - uses: anthropics/claude-code-action@v1
+      - id: claude
+        uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: |
@@ -111,3 +122,12 @@ jobs:
             --model claude-sonnet-5-5
             --max-turns 40
             --mcp-config .mcp.json
+      - name: Record token usage (ledger)
+        if: always() && steps.claude.outputs.execution_file != ''
+        uses: ./.github/actions/aico-record-usage
+        with:
+          execution-file: ${{ steps.claude.outputs.execution_file }}
+          source: maintain-detect
+          context: agent-fix
+          prompt: "Fix the diagnosed 3-sigma anomaly (newest open stage:maintain issue)"
+          ref: ""
