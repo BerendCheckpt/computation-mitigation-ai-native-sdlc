@@ -26,10 +26,20 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
-      - uses: anthropics/claude-code-action@v1
+      - id: claude
+        uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_args: |
             --model claude-sonnet-5-5
             --max-turns 30
             --mcp-config .mcp.json
+      - name: Record token usage (ledger)
+        if: always() && steps.claude.outputs.execution_file != ''
+        uses: ./.github/actions/aico-record-usage
+        with:
+          execution-file: ${{ steps.claude.outputs.execution_file }}
+          source: claude-on-demand
+          context: feedback
+          prompt: "${{ github.event.comment.body }}"
+          ref: ${{ github.repository }}#${{ github.event.issue.number || github.event.pull_request.number }}
