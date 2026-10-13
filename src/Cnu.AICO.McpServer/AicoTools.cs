@@ -40,7 +40,7 @@ public sealed class AicoTools(AicoContext aico)
             Context = policy.Context,
             Confidence = match.Confidence,
             // Savings are booked by generate_* when the work actually happens, so one request is not counted twice.
-            EstimatedTokensAvoided = 0,
+            TokensAvoided = 0,
             Reason = match.Reason,
         });
 

@@ -19,16 +19,22 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
-      - name: Download last week's decision logs
+      - name: Download decision logs and token-ledger fragments
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p .aico
-          since=$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)
-          for id in $(gh run list --workflow template-verify.yml --limit 200 --json databaseId,createdAt \
+          mkdir -p .aico .aico-ledger
+          # 14 days overlaps the previous report; ledger merges are idempotent (entries are keyed by id).
+          since=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ)
+          for id in $(gh run list --limit 500 --json databaseId,createdAt \
                         --jq ".[] | select(.createdAt >= \"$since\") | .databaseId"); do
             gh run download "$id" --pattern 'aico-decisions-*' --dir ".aico/$id" 2>/dev/null || true
+            gh run download "$id" --pattern 'aico-ledger-*' --dir ".aico-ledger/$id" 2>/dev/null || true
           done
+      - name: Merge into the token ledger (deterministic runs are compared with their baselines here)
+        run: |
+          dotnet run scripts/aico-ci.cs -- ledger merge --from .aico-ledger
+          dotnet run scripts/aico-ci.cs -- ledger report
       - name: Build report
         env:
           # Configurable estimate; publish the factor you use. Not a measurement.
@@ -43,7 +49,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "kpi/$week"
-          git add reports/
-          git commit -m "kpi: weekly computation mitigation report $week" || exit 0
+          git add reports/ ledger/
+          git commit -m "kpi: weekly report and token ledger $week" || exit 0
           git push -u origin "kpi/$week"
-          gh pr create --title "kpi: $week" --body "Weekly KPI report (deterministic, no model)." --label kpi
+          gh pr create --title "kpi: $week" --body "Weekly KPI report and token-ledger merge (deterministic, no model). Review new ledger entries in the diff of ledger/token-usage.jsonl; the overview is reports/token-ledger.md." --label kpi

@@ -43,4 +43,5 @@ dotnet run --project samples/RouterClient -- --dry-run "Add a minimal API endpoi
 | `.claude/` | Settings, hooks, skills, subagents |
 | `.github/` | CODEOWNERS, issue forms, workflows |
 | `evals/`, `ops/`, `policy.yaml` | Routing evals, runbooks/bands, model-use policy |
+| `ledger/`, `reports/token-ledger.md` | Token ledger of real Claude runs (audit log) and its generated overview |
 | `samples/RouterClient` | Optional MCP-client router sample (not production) |

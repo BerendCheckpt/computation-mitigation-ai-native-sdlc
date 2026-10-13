@@ -12,6 +12,9 @@ public sealed record AicoOptions
     public string PolicyPath { get; init; } = "policy.yaml";
     public string LogPath { get; init; } = ".aico/decisions.jsonl";
 
+    /// <summary>Version-controlled token ledger; measured savings per template come from its accepted comparisons.</summary>
+    public string LedgerPath { get; init; } = TokenLedger.DefaultPath;
+
     /// <summary>Repository root that generated files are written under.</summary>
     public string OutputRoot { get; init; } = ".";
 
@@ -37,6 +40,7 @@ public sealed record AicoOptions
             TemplatesPath = Arg("--templates") ?? env("CNU_AICO_TEMPLATES") ?? defaults.TemplatesPath,
             PolicyPath = Arg("--policy") ?? env("CNU_AICO_POLICY") ?? defaults.PolicyPath,
             LogPath = Arg("--log") ?? env("CNU_AICO_LOG") ?? defaults.LogPath,
+            LedgerPath = Arg("--ledger") ?? env("CNU_AICO_LEDGER") ?? defaults.LedgerPath,
             OutputRoot = Arg("--output-root") ?? env("CNU_AICO_OUTPUT_ROOT") ?? defaults.OutputRoot,
             DefaultContext = Arg("--context") ?? env("CNU_AICO_CONTEXT"),
             DefaultLabels = SplitLabels(Arg("--labels") ?? env("CNU_AICO_LABELS")),
@@ -59,6 +63,7 @@ public sealed class AicoContext
         Policy = PolicyEvaluator.Load(options.PolicyPath);
         Log = new DecisionLog(options.LogPath);
         Outcomes = new OutcomeRecorder(Registry);
+        Ledger = TokenLedger.Load(options.LedgerPath);
     }
 
     public AicoOptions Options { get; }
@@ -67,6 +72,7 @@ public sealed class AicoContext
     public PolicyEvaluator Policy { get; }
     public DecisionLog Log { get; }
     public OutcomeRecorder Outcomes { get; }
+    public TokenLedger Ledger { get; }
 
     public PolicyDecision EvaluatePolicy(string? context, string? labels) =>
         Policy.Evaluate(context ?? Options.DefaultContext,

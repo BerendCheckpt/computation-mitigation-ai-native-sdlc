@@ -32,8 +32,20 @@ public sealed class TemplateSpec
     public TestsSpec Tests { get; set; } = new();
     public List<string> PostActions { get; set; } = [];
 
-    /// <summary>Typical output tokens a model would spend producing this result by hand. Used for KPI estimates.</summary>
+    /// <summary>
+    /// Judgement-based guess of the output tokens a model would spend producing this result by hand. Only used until
+    /// the token ledger holds an accepted comparison for this template version; KPIs then label the figure "estimated".
+    /// </summary>
     public int EstimatedOutputTokens { get; set; } = 2000;
+
+    /// <summary>
+    /// Output tokens avoided per deterministic run, and whether that figure is measured (latest accepted comparison in
+    /// the token ledger for this template version) or estimated (<see cref="EstimatedOutputTokens"/>).
+    /// </summary>
+    public AvoidedTokens AvoidedOutputTokens(Telemetry.TokenLedger? ledger = null) =>
+        ledger?.LatestAcceptedComparison(Id, Version) is { } c
+            ? new AvoidedTokens((int)c.Saved.Output, BaselineSources.Measured, c.Id)
+            : new AvoidedTokens(Math.Max(0, EstimatedOutputTokens - Telemetry.DecisionLog.ToolCallTokens), BaselineSources.Estimated, null);
 
     /// <summary>Optional per-template override of the matcher's minimum confidence (0..1).</summary>
     public double? MatchThreshold { get; set; }
@@ -44,6 +56,15 @@ public sealed class TemplateSpec
 
     /// <summary>MCP tool name for this template.</summary>
     public string ToolName => "generate_" + Id.Replace('-', '_');
+}
+
+/// <param name="ComparisonId">Ledger comparison the measured figure comes from; null for estimates.</param>
+public sealed record AvoidedTokens(int Tokens, string Source, string? ComparisonId);
+
+public static class BaselineSources
+{
+    public const string Measured = "measured";
+    public const string Estimated = "estimated";
 }
 
 public sealed class IntentSpec

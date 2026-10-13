@@ -21,7 +21,7 @@ templates/<id>/
 | `state` | ✓ | `exploratory · candidate · approved · crystallized · deprecated`. Only humans set `approved`/`crystallized` |
 | `title`, `description` | ✓ / – | `title` is shown in the MCP tool; keep it short (tokens) |
 | `owners` | ✓ | Template owners (also in CODEOWNERS) |
-| `estimatedOutputTokens` | – | What a model would spend writing this by hand; used for KPI estimates |
+| `estimatedOutputTokens` | – | Judgement-based guess of what a model would spend writing this by hand. Used until the token ledger holds an accepted comparison for this version; KPIs label it "estimated" |
 | `matchThreshold` | – | Overrides the global minimum confidence (0–1) |
 | `intent.keywords` | ✓ | Phrases describing the intent; normalized into the BM25 document (incl. bigrams) |
 | `intent.synonyms` | – | `canonical: [alternatives]`. Alternatives are rewritten before scoring |

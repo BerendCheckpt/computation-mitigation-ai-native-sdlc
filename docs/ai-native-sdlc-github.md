@@ -105,7 +105,8 @@ Legend: ◆ = deterministic (no model) · ● = model
 - share of requests served deterministically (`generate_*` + skipped reviews ÷ all outcomes)
 - model escalations, and policy routes to humans
 - AI reviews skipped by regen-verify
-- estimated output tokens avoided, and estimated kWh / CO₂e. The factor is configurable and published with the report; these are estimates, not measurements.
+- output tokens avoided, split into **measured** (from token-ledger comparisons of real runs: deterministic run vs the earlier model-path run) and **estimated** (templates without such a comparison yet). The audit log and overview are `ledger/token-usage.jsonl` and `reports/token-ledger.md`. See [computation-mitigation.md §9](computation-mitigation.md#9-measuring-avoided-tokens).
+- kWh / CO₂e: always an estimate, using a configurable factor published with the report.
 - templates per lifecycle state, and demotions
 
 ## Part E — Rollout phases

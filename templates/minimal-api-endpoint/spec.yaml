@@ -8,6 +8,9 @@ description: >
   .NET 10 minimal API endpoint group (list/get/create/delete) for one entity, with a store abstraction,
   an in-memory store, shipped unit tests and suggested integration tests.
 owners: ["@cnu/platform-team"]
+# Judgement-based estimate, NOT measured. Floor: the generated files are 6,240 characters (~1,800 tokens at
+# ~3.5 characters per token), so a model writing them spends at least that. Used only until the token ledger holds an
+# accepted comparison for this version (reports/token-ledger.md); KPIs label figures from this estimate as "estimated".
 estimatedOutputTokens: 3500
 
 intent:

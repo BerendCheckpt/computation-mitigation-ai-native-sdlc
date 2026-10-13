@@ -12,15 +12,21 @@ public sealed record DecisionEntry
     public string? Context { get; init; }
     public double? Confidence { get; init; }
 
-    /// <summary>Output tokens a model would have spent minus the tokens of the tool call itself.</summary>
-    public int EstimatedTokensAvoided { get; init; }
+    /// <summary>Output tokens avoided by serving this deterministically (see <see cref="BaselineSource"/>).</summary>
+    public int TokensAvoided { get; init; }
+
+    /// <summary>"measured" when the template has a measured baseline, "estimated" when it falls back to the configured guess.</summary>
+    public string? BaselineSource { get; init; }
     public string? Reason { get; init; }
 }
 
 /// <summary>Append-only JSONL log of routing decisions; the input for the KPI report.</summary>
 public sealed class DecisionLog(string? path)
 {
-    /// <summary>Rough cost of a model emitting a tool call with parameters, instead of the code itself.</summary>
+    /// <summary>
+    /// Assumed cost of a model emitting a tool call with parameters. Only used for estimated baselines;
+    /// a measured baseline already contains the real cost of the template path.
+    /// </summary>
     public const int ToolCallTokens = 50;
 
     static readonly JsonSerializerOptions Json = new()

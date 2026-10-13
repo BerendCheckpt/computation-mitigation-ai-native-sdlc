@@ -1,0 +1,52 @@
+name: aico-record-usage
+description: >
+  Records the token usage of a Claude run (claude-code-action's execution_file) as a token-ledger fragment and uploads
+  it. kpi-report merges the fragments into ledger/token-usage.jsonl. Model-path runs become baselines; a run that called
+  a template tool is compared with its baseline when merged. No extra Claude call is made.
+
+inputs:
+  execution-file:
+    description: The `execution_file` output of anthropics/claude-code-action
+    required: true
+  source:
+    description: Name of the workflow/job that ran Claude (shown in the ledger)
+    required: true
+  context:
+    description: Policy context of the run (ideation, build, agent-fix, diagnose, …)
+    required: false
+    default: ""
+  prompt:
+    description: The request Claude worked on. Passed through an environment variable, never interpolated into a script.
+    required: false
+    default: ""
+  ref:
+    description: Issue or PR the run belongs to, e.g. org/repo#42
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.0.x
+    - name: Record usage in a ledger fragment
+      shell: bash
+      env:
+        EXECUTION_FILE: ${{ inputs.execution-file }}
+        SOURCE: ${{ inputs.source }}
+        CONTEXT: ${{ inputs.context }}
+        REF: ${{ inputs.ref }}
+        CNU_AICO_PROMPT: ${{ inputs.prompt }}
+      run: |
+        mkdir -p .aico-ledger
+        dotnet run scripts/aico-ci.cs -- ledger record \
+          --result "$EXECUTION_FILE" --source "$SOURCE" --context "$CONTEXT" --ref "$REF" \
+          --decisions .aico/decisions.jsonl \
+          --out ".aico-ledger/${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}.jsonl"
+    - uses: actions/upload-artifact@v4
+      with:
+        name: aico-ledger-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}
+        path: .aico-ledger/
+        if-no-files-found: ignore
+        retention-days: 90

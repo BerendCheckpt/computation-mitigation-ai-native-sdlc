@@ -143,7 +143,7 @@ public class KpiReportTests
     {
         var entries = new[]
         {
-            new DecisionEntry { Tool = "generate_minimal_api_endpoint", Route = "deterministic", TemplateId = "minimal-api-endpoint", EstimatedTokensAvoided = 3450 },
+            new DecisionEntry { Tool = "generate_minimal_api_endpoint", Route = "deterministic", TemplateId = "minimal-api-endpoint", TokensAvoided = 3450, BaselineSource = "estimated" },
             new DecisionEntry { Tool = "match_template", Route = "model" },
             new DecisionEntry { Tool = "template-verify", Route = "deterministic" },
         };
@@ -151,7 +151,9 @@ public class KpiReportTests
         var md = KpiReport.Build(entries, null, kwhPerMillionTokens: 1, gCo2PerKwh: 300);
 
         Assert.Contains("| Served deterministically | 2 (67%) |", md);
-        Assert.Contains("| AI reviews skipped (regen-verified PRs) | 1 |", md);
+        Assert.Contains("| AI reviews skipped (regen-verified PRs) | 1 (review tokens not measured) |", md);
+        Assert.Contains("| Output tokens avoided, estimated baseline | 3,450 |", md);
+        Assert.Contains("| Output tokens avoided, measured baseline | 0 |", md);
         Assert.Contains("3,450", md);
     }
 }

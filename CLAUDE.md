@@ -22,6 +22,7 @@ AI-native SDLC on GitHub with a deterministic layer: crystallized, human-approve
 | Build | `dotnet build Cnu.AICO.slnx` | `Build succeeded.` 0 warnings (warnings are errors) |
 | Test | `dotnet test Cnu.AICO.slnx` | `Passed!` for both test projects |
 | Validate templates | `dotnet run scripts/aico-ci.cs -- validate` | `0 error(s)` |
+| Token ledger overview | `dotnet run scripts/aico-ci.cs -- ledger report` (CI runs `ledger check`) | `reports/token-ledger.md` matches `ledger/token-usage.jsonl` |
 | Update golden files (after an approved template change only) | `AICO_UPDATE_GOLDEN=1 dotnet test tests/Cnu.AICO.Core.Tests` | then review the diff in `tests/golden/` |
 | Run MCP server | `dotnet run --project src/Cnu.AICO.McpServer` | waits on stdio |
 

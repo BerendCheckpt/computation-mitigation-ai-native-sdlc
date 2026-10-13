@@ -45,7 +45,8 @@ with **every** model request, so each word there costs on every call.
 Policy: the server enforces `policy.yaml`. A `critical` label in `agent-fix`/`diagnose`/`ci` context refuses both
 model reasoning and tool generation, and routes the work to a human PR. The `ci` context is deterministic-only.
 
-Telemetry: every decision goes to JSONL (`CNU_AICO_LOG`) and feeds the weekly KPI report.
+Telemetry: every decision goes to JSONL (`CNU_AICO_LOG`) and feeds the weekly KPI report. Each deterministic
+generation records the tokens it avoided and whether that figure is **measured** or **estimated** (section 9).
 
 ## 4. Model-free keyword matching (`Cnu.AICO.Core.Matching`)
 1. **Normalize:** lowercase, tokenize, drop stop words, light suffix stemming, rewrite synonyms to canonical terms.
@@ -90,6 +91,47 @@ Every crystallized flow can run with **no model**:
 See [ADR 0003](adr/0003-optional-mcp-client-router.md) and `samples/RouterClient`. It is an MCP client that sends
 `CallToolRequest` directly on a confident match, so zero model tokens are spent, including tool-list tokens. It is
 recommended for high-volume automated paths, and not planned for now.
+
+## 9. Measuring avoided tokens
+Savings are measured as a side effect of real work. There is no separate measurement job and no extra Claude call.
+
+**The token ledger.** Every Claude run in the workflows (`stage-1-intent`, `stage-2-spec`, `claude-review`,
+`claude-on-demand`, `stage-6-agent-fix`, `maintain-detect`) ends with the `aico-record-usage` step. It reads the run's
+final `result` message from claude-code-action's `execution_file`, following the
+[Agent SDK cost-tracking guide](https://code.claude.com/docs/en/agent-sdk/cost-tracking):
+- tokens from `modelUsage`, which includes subagents (`usage` covers only the top-level loop);
+- output tokens only from the result message, because per-step `output_tokens` are placeholders;
+- `total_cost_usd` stored as a **client-side estimate**, never as billing data;
+- crashed runs with zeroed totals flagged and never used as a baseline.
+
+The step writes a ledger fragment, uploaded as an artifact. The weekly `kpi-report` merges the fragments into
+`ledger/token-usage.jsonl` (append-only, committed) and regenerates `reports/token-ledger.md`. CI fails if the overview
+is stale (`ledger check`). The ledger's git history is the audit trail: every change arrives through a reviewed PR,
+and every entry carries its commit SHA and workflow run.
+
+**Baseline and comparison:**
+1. **Baseline.** A run in which the model did the work (no template tool called) is recorded on the *model path*. It
+   is attributed to the matcher's best candidate template for the request, even if that template is not crystallized
+   yet.
+2. **Deterministic run.** After the template is approved and crystallized, a later request routes to it, and the run
+   calls `generate_<id>` (seen in the cnu-aico server's decision log of that job). It is recorded on the *deterministic
+   path*.
+3. **Comparison.** When the deterministic run enters the ledger, it is compared with the run it corresponds to: the
+   latest successful model-path run with the **same normalized prompt** (`exact-prompt`), otherwise the latest one for
+   the **same template** (`same-template`). The ledger stores the saved input, output and cache tokens and the saved
+   cost estimate. Negative values are kept: they mean the template path cost more.
+4. A comparison is **accepted** only if the deterministic run succeeded, actually called the template tool, and has
+   reliable totals. Rejected comparisons stay in the ledger with the reason.
+
+**What changes in reporting:** each generation logs `tokensAvoided` with `baselineSource: measured` (the latest accepted
+comparison for that template **version**) or `estimated` (`estimatedOutputTokens`). The KPI report shows both totals
+on separate rows. A new template version starts as "estimated" again until its first accepted comparison.
+
+**What stays an estimate:**
+- Templates without a measurement fall back to `estimatedOutputTokens`, labelled "estimated".
+- Energy and CO₂e: providers do not publish per-request energy, so these use a configured factor and are always labelled
+  estimates.
+- Review tokens saved by skipping AI review on template-only PRs are counted (number of skips), not converted to tokens.
 
 ---
 

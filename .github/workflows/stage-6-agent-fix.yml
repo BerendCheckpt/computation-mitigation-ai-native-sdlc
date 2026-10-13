@@ -58,7 +58,8 @@ jobs:
           jq -n --arg labels "$LABELS" '{mcpServers: {"cnu-aico": {type: "stdio", command: "dotnet",
             args: ["run", "--project", "src/Cnu.AICO.McpServer", "--"],
             env: {CNU_AICO_CONTEXT: "agent-fix", CNU_AICO_LABELS: $labels}}}}' > "$RUNNER_TEMP/aico-mcp.json"
-      - uses: anthropics/claude-code-action@v1
+      - id: claude
+        uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           track_progress: true
@@ -82,3 +83,12 @@ jobs:
             --max-turns 40
             --mcp-config ${{ runner.temp }}/aico-mcp.json
             --allowedTools Read,Write,Edit,Glob,Grep,Task,Bash(dotnet:*),Bash(git:*),Bash(gh pr create:*),Bash(gh issue comment:*),mcp__cnu-aico__match_template,mcp__cnu-aico__generate_*
+      - name: Record token usage (ledger)
+        if: always() && steps.claude.outputs.execution_file != ''
+        uses: ./.github/actions/aico-record-usage
+        with:
+          execution-file: ${{ steps.claude.outputs.execution_file }}
+          source: stage-6-agent-fix
+          context: agent-fix
+          prompt: "${{ github.event.issue.title }}\n\n${{ github.event.issue.body }}"
+          ref: ${{ github.repository }}#${{ github.event.issue.number }}
