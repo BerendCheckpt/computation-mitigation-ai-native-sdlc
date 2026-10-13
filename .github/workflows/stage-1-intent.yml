@@ -34,7 +34,8 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
-      - uses: anthropics/claude-code-action@v1
+      - id: claude
+        uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           track_progress: true
@@ -53,3 +54,12 @@ jobs:
             --max-turns 20
             --mcp-config '{"mcpServers":{"cnu-aico":{"type":"stdio","command":"dotnet","args":["run","--project","src/Cnu.AICO.McpServer","--"],"env":{"CNU_AICO_CONTEXT":"ideation"}}}}'
             --allowedTools Read,Write,Edit,Glob,Grep,Bash(git:*),Bash(gh issue comment:*),Bash(gh pr create:*),mcp__cnu-aico__match_template
+      - name: Record token usage (ledger)
+        if: always() && steps.claude.outputs.execution_file != ''
+        uses: ./.github/actions/aico-record-usage
+        with:
+          execution-file: ${{ steps.claude.outputs.execution_file }}
+          source: stage-1-intent
+          context: ideation
+          prompt: "${{ github.event.issue.title }}\n\n${{ github.event.issue.body }}"
+          ref: ${{ github.repository }}#${{ github.event.issue.number }}
