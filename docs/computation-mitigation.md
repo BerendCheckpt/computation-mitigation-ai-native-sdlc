@@ -45,7 +45,8 @@ with **every** model request, so each word there costs on every call.
 Policy: the server enforces `policy.yaml`. A `critical` label in `agent-fix`/`diagnose`/`ci` context refuses both
 model reasoning and tool generation, and routes the work to a human PR. The `ci` context is deterministic-only.
 
-Telemetry: every decision goes to JSONL (`CNU_AICO_LOG`) and feeds the weekly KPI report.
+Telemetry: every decision goes to JSONL (`CNU_AICO_LOG`) and feeds the weekly KPI report. Each deterministic
+generation records the tokens it avoided and whether that figure is **measured** or **estimated** (section 9).
 
 ## 4. Model-free keyword matching (`Cnu.AICO.Core.Matching`)
 1. **Normalize:** lowercase, tokenize, drop stop words, light suffix stemming, rewrite synonyms to canonical terms.
@@ -90,6 +91,33 @@ Every crystallized flow can run with **no model**:
 See [ADR 0003](adr/0003-optional-mcp-client-router.md) and `samples/RouterClient`. It is an MCP client that sends
 `CallToolRequest` directly on a confident match, so zero model tokens are spent, including tool-list tokens. It is
 recommended for high-volume automated paths, and not planned for now.
+
+## 9. Measuring avoided tokens
+"Avoided" tokens can never be observed for a single request: a request cannot be both served by a template and not
+served. What can be measured is the counterfactual, under controlled conditions, and then applied per request.
+
+**Method** (`scripts/measure-baseline.cs`, run by the `measure-baseline` workflow):
+1. A measurement config (`measurements/<template>.yaml`) fixes the prompt, a scaffold (fresh starting project) and
+   **acceptance commands** (build, minimum number of passing tests). The acceptance commands define "the same result".
+2. The task runs N times (default 5) in two arms, each in a fresh scratch project, alternating order:
+   - **control:** no template tools; the model writes the code itself;
+   - **template:** the `cnu-aico` MCP server is available; the model calls `generate_<id>`.
+3. Each run's token usage comes from `claude -p --output-format json`, the CLI's own usage report.
+4. Only accepted runs count. A control run that skips the tests, or a template run that ignores the tool, measures
+   something else and is dropped. At least 3 accepted runs per arm are required.
+5. Avoided per run = median output tokens (control) − median output tokens (template).
+6. The workflow commits the raw runs as evidence and opens a PR with a `measuredOutputTokens` block for `spec.yaml`.
+   A reviewer checks the runs and merges.
+
+**What changes in reporting:** each generation logs `tokensAvoided` with `baselineSource: measured` or `estimated`.
+The KPI report shows the two totals on separate rows, plus a per-template table of which baselines are measured, with
+n, model, date and evidence. Re-measure when the template version or the default model changes: both move the number.
+
+**What stays an estimate:**
+- Templates without a measurement fall back to `estimatedOutputTokens`, labelled "estimated".
+- Energy and CO₂e: providers do not publish per-request energy, so these use a configured factor and are always labelled
+  estimates.
+- Review tokens saved by skipping AI review on template-only PRs are counted (number of skips), not converted to tokens.
 
 ---
 

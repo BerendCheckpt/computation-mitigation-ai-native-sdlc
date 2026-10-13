@@ -70,9 +70,9 @@ int Verify()
                   $"\n\n**Template-only change:** {(templateOnly ? "yes — AI review skipped, deterministic verification passed" : "no")}\n");
     if (templateOnly)
     {
-        var avoided = results.Where(r => r.TemplateId is not null).Select(r => r.TemplateId!).Distinct()
-            .Sum(id => registry.Find(id)?.Spec.EstimatedOutputTokens ?? 0);
-        log.Append(new DecisionEntry { Tool = "template-verify", Route = Routes.Deterministic, Context = "ci", EstimatedTokensAvoided = avoided, Reason = "AI review skipped; regen-verified." });
+        // Counts the skipped review only. Generation tokens were booked when the code was generated, and the
+        // review tokens a skip saves are not measured, so no token figure is claimed here.
+        log.Append(new DecisionEntry { Tool = "template-verify", Route = Routes.Deterministic, Context = "ci", TokensAvoided = 0, Reason = "AI review skipped; regen-verified." });
     }
     return failed ? 1 : 0;
 }
@@ -99,8 +99,9 @@ int Generate()
     var result = TemplateGenerator.Generate(entry.Spec, parameters);
     foreach (var path in TemplateGenerator.WriteTo(Opt("--out") ?? ".", result, overwrite: args.Contains("--overwrite")))
         Console.WriteLine(path);
+    var avoided = entry.Spec.AvoidedOutputTokens();
     log.Append(new DecisionEntry { Tool = entry.Spec.ToolName, Route = Routes.Deterministic, TemplateId = id, Context = "ci", Confidence = 1,
-        EstimatedTokensAvoided = entry.Spec.EstimatedOutputTokens - DecisionLog.ToolCallTokens });
+        TokensAvoided = avoided.Tokens, BaselineSource = avoided.Source });
     return 0;
 }
 

@@ -82,6 +82,7 @@ public sealed class GenerateTemplateTool : McpServerTool
             }
         }
 
+        var avoided = entry.Spec.AvoidedOutputTokens();
         _aico.Log.Append(new DecisionEntry
         {
             Tool = ProtocolTool.Name,
@@ -89,7 +90,8 @@ public sealed class GenerateTemplateTool : McpServerTool
             TemplateId = _templateId,
             Context = policy.Context,
             Confidence = 1,
-            EstimatedTokensAvoided = entry.Spec.EstimatedOutputTokens - DecisionLog.ToolCallTokens,
+            TokensAvoided = avoided.Tokens,
+            BaselineSource = avoided.Source,
         });
 
         var summary = new JsonObject

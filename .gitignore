@@ -6,3 +6,5 @@ TestResults/
 .idea/
 # Local decision logs (CI uploads them as artifacts for the KPI report)
 .aico/
+# Dry-run output of scripts/measure-baseline.cs
+measurements/.dryrun/

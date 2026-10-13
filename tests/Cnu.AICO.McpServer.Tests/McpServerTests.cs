@@ -123,7 +123,8 @@ public sealed class McpServerTests(McpServerFixture f) : IClassFixture<McpServer
 
         var entry = DecisionLog.Read(LogPath).Last();
         Assert.Equal("deterministic", entry.Route);
-        Assert.True(entry.EstimatedTokensAvoided > 3000);
+        Assert.True(entry.TokensAvoided > 3000);
+        Assert.Equal("estimated", entry.BaselineSource);
     }
 
     [Fact]
