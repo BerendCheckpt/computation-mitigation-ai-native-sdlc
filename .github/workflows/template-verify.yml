@@ -1,6 +1,7 @@
 # Stage 4/5 — deterministic verification of template output, and the gate for AI review.
 # Required status check. If every changed file regenerates identically from a crystallized template,
-# the PR is "template-only" and the AI review job is skipped: re-generate + diff replaces a model call.
+# the PR is "template-only" and needs no AI review: re-generate + diff replaces a model call.
+# Otherwise AI review happens locally, in an agent sandbox started from the hub (no model runs in this workflow).
 name: template-verify
 
 on:
@@ -9,9 +10,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
-  id-token: write
 
 concurrency:
   group: pr-${{ github.event.pull_request.number }}
@@ -34,6 +32,19 @@ jobs:
       - id: verify
         name: Regenerate and diff template output
         run: dotnet run scripts/aico-ci.cs -- verify --base origin/${{ github.base_ref }}
+      - name: AI review route (summary)
+        env:
+          TEMPLATE_ONLY: ${{ steps.verify.outputs.template_only }}
+        run: |
+          {
+            echo "### AI review"
+            if [ "$TEMPLATE_ONLY" = "true" ]; then
+              echo "Template-only PR (\`template_only=true\`): every changed file regenerates identically, so no AI review is needed."
+            else
+              echo "Not template-only: AI review happens locally, in an agent sandbox started from the hub, following \`REVIEW.md\`."
+              echo "No model runs in this workflow."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -41,12 +52,3 @@ jobs:
           path: .aico/
           if-no-files-found: ignore
           retention-days: 30
-
-  ai-review:
-    needs: verify
-    # Draft PRs and template-only PRs do not spend model tokens.
-    if: needs.verify.outputs.template_only != 'true' && github.event.pull_request.draft == false
-    uses: ./.github/workflows/claude-review.yml
-    with:
-      pr_number: ${{ github.event.pull_request.number }}
-    secrets: inherit
