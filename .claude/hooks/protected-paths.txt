@@ -9,6 +9,9 @@ ops/bands.md
 .github/CODEOWNERS
 templates/*/provenance.json
 **/appsettings.Production.json
+# Define the agent's isolation (Docker Sandboxes microVM, network policy, kit): an agent must not widen its own sandbox.
+sbxenv.yaml
+sandbox/**
 # Written by tooling only (aico-ci ledger record/merge/report); history is the audit trail.
 ledger/**
 reports/token-ledger.md
