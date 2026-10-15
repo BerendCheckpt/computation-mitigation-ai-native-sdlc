@@ -55,16 +55,137 @@ public class ClaudeResultParserTests
     }
 
     [Fact]
-    public void Crash_with_zeroed_totals_is_flagged_unreliable()
+    public void Crash_with_zeroed_totals_after_a_model_call_is_flagged_unreliable()
     {
-        var r = ClaudeResultParser.Parse("""{"type":"result","subtype":"error_during_execution","is_error":true,"total_cost_usd":0,"usage":{"output_tokens":0}}""");
+        var r = ClaudeResultParser.Parse("""{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":3,"total_cost_usd":0,"usage":{"output_tokens":0}}""");
+        Assert.True(r.ModelInvoked);
         Assert.True(r.TotalsUnreliable);
         Assert.False(r.Succeeded);
     }
 
     [Fact]
+    public void Crash_with_partial_tokens_but_zeroed_cost_is_flagged_unreliable()
+    {
+        var r = ClaudeResultParser.Parse("""{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":2,"total_cost_usd":0,"usage":{"input_tokens":10,"output_tokens":5}}""");
+        Assert.True(r.TotalsUnreliable);
+    }
+
+    [Fact]
+    public void Zero_tokens_after_a_model_call_are_unreliable()
+    {
+        var r = ClaudeResultParser.Parse("""{"type":"result","subtype":"success","num_turns":1,"usage":{"input_tokens":0,"output_tokens":0}}""");
+        Assert.True(r.TotalsUnreliable);
+    }
+
+    [Fact]
+    public void A_run_that_invoked_no_model_validly_records_zero_tokens()
+    {
+        var result = ClaudeResultParser.Parse("""{"type":"result","subtype":"success","num_turns":0,"usage":{"input_tokens":0,"output_tokens":0}}""");
+        var crash = ClaudeResultParser.Parse("""{"type":"result","subtype":"error_during_execution","is_error":true,"total_cost_usd":0}""");
+        var transcript = ClaudeResultParser.Parse(
+            """{"type":"user","sessionId":"s9","message":{"role":"user","content":"/status"}}""");
+
+        Assert.All([result, crash, transcript], r =>
+        {
+            Assert.False(r.ModelInvoked);
+            Assert.False(r.TotalsUnreliable);
+            Assert.Equal(0, r.Tokens.Total);
+        });
+    }
+
+    [Fact]
+    public void Successful_run_with_tokens_is_reliable() =>
+        Assert.False(ClaudeResultParser.Parse(Result).TotalsUnreliable);
+
+    [Fact]
     public void Missing_result_message_is_an_error() =>
         Assert.Throws<InvalidDataException>(() => ClaudeResultParser.Parse("""[{"type":"system"}]"""));
+
+    [Fact]
+    public void Empty_input_is_an_error() =>
+        Assert.Throws<InvalidDataException>(() => ClaudeResultParser.Parse("  "));
+
+    // A Claude Code session transcript (~/.claude/projects/<proj>/<session>.jsonl). Message msg_1 was streamed as two
+    // content blocks: both lines carry usage, and the last line for an id is the one that counts.
+    static readonly string Transcript = string.Join('\n',
+        """{"type":"user","sessionId":"sess-1","timestamp":"2026-10-15T09:00:00.000Z","message":{"role":"user","content":"fix it"}}""",
+        """{"type":"assistant","sessionId":"sess-1","timestamp":"2026-10-15T09:00:02.000Z","message":{"id":"msg_1","model":"claude-opus-5-5","usage":{"input_tokens":10,"output_tokens":1,"cache_read_input_tokens":1000,"cache_creation_input_tokens":200}}}""",
+        """{"type":"assistant","sessionId":"sess-1","timestamp":"2026-10-15T09:00:03.000Z","message":{"id":"msg_1","model":"claude-opus-5-5","usage":{"input_tokens":10,"output_tokens":50,"cache_read_input_tokens":1000,"cache_creation_input_tokens":200}}}""",
+        """{"type":"user","sessionId":"sess-1","timestamp":"2026-10-15T09:00:04.000Z","message":{"role":"user","content":[{"type":"tool_result"}]}}""",
+        """{"type":"assistant","sessionId":"sess-1","timestamp":"2026-10-15T09:00:10.000Z","message":{"id":"msg_2","model":"claude-opus-5-5","usage":{"input_tokens":5,"output_tokens":20,"cache_read_input_tokens":1200,"cache_creation_input_tokens":0}}}""",
+        """{"type":"summary","summary":"Fix"}""");
+
+    static readonly string SubAgentTranscript = string.Join('\n',
+        """{"type":"user","isSidechain":true,"sessionId":"sess-1","message":{"role":"user","content":"search"}}""",
+        """{"type":"assistant","isSidechain":true,"sessionId":"sess-1","message":{"id":"msg_s1","model":"claude-haiku-5-5","usage":{"input_tokens":3,"output_tokens":7,"cache_read_input_tokens":0,"cache_creation_input_tokens":100}}}""");
+
+    [Fact]
+    public void Session_transcript_counts_each_message_id_once_using_its_last_line()
+    {
+        var r = ClaudeResultParser.Parse(Transcript);
+
+        Assert.Equal(new TokenCounts(15, 70, 2200, 200), r.Tokens);
+        Assert.Equal("claude-opus-5-5", r.PrimaryModel);
+        Assert.Equal(["claude-opus-5-5"], r.Models);
+        Assert.Equal("sess-1", r.SessionId);
+        Assert.Equal(2, r.Turns);
+        Assert.Equal(10_000, r.DurationMs);
+        Assert.Null(r.CostUsdEstimate);
+        Assert.True(r.ModelInvoked);
+        Assert.False(r.TotalsUnreliable);
+        Assert.True(r.Succeeded);
+    }
+
+    [Fact]
+    public void Main_and_subagent_transcripts_are_summed()
+    {
+        var r = ClaudeResultParser.Parse([Transcript, SubAgentTranscript]);
+
+        Assert.Equal(new TokenCounts(18, 77, 2200, 300), r.Tokens);
+        Assert.Equal("claude-opus-5-5", r.PrimaryModel);
+        Assert.Equal(["claude-opus-5-5", "claude-haiku-5-5"], r.Models);
+        Assert.Equal(3, r.Turns);
+    }
+
+    [Fact]
+    public void A_message_that_appears_in_two_transcripts_is_counted_once()
+    {
+        var r = ClaudeResultParser.Parse([Transcript, Transcript]);
+        Assert.Equal(new TokenCounts(15, 70, 2200, 200), r.Tokens);
+    }
+
+    [Fact]
+    public void Synthetic_assistant_messages_are_not_a_model()
+    {
+        var text = Transcript + "\n" +
+            """{"type":"assistant","sessionId":"sess-1","message":{"id":"msg_x","model":"<synthetic>","usage":{"input_tokens":0,"output_tokens":0}}}""";
+        Assert.Equal(["claude-opus-5-5"], ClaudeResultParser.Parse(text).Models);
+    }
+
+    [Fact]
+    public void A_result_message_wins_over_assistant_lines()
+    {
+        // stream-json has assistant lines too; when the result is there, its totals are used, not the per-step usage.
+        var text = Transcript + "\n" + Result.ReplaceLineEndings(" ");
+        Assert.Equal(new TokenCounts(150, 1200, 5000, 1200), ClaudeResultParser.Parse(text).Tokens);
+        Assert.Equal(new TokenCounts(150, 1200, 5000, 1200), ClaudeResultParser.Parse([text]).Tokens);
+    }
+
+    [Fact]
+    public void A_result_and_a_subagent_transcript_are_summed()
+    {
+        var r = ClaudeResultParser.Parse([Result, SubAgentTranscript]);
+
+        Assert.Equal(new TokenCounts(153, 1207, 5000, 1300), r.Tokens);
+        Assert.Equal("claude-sonnet-5-5", r.PrimaryModel);
+        Assert.Contains("claude-haiku-5-5", r.Models);
+        Assert.Equal(0.2, r.CostUsdEstimate);
+        Assert.True(r.Succeeded);
+    }
+
+    [Fact]
+    public void Several_texts_need_at_least_one() =>
+        Assert.Throws<InvalidDataException>(() => ClaudeResultParser.Parse(Array.Empty<string>()));
 }
 
 public class TokenLedgerTests
@@ -109,6 +230,41 @@ public class TokenLedgerTests
         ledger.Append(ModelRun("run-mixed", "k", 800, T0, usedTemplate: true));
 
         Assert.Null(ledger.FindBaseline("minimal-api-endpoint", "k"));
+    }
+
+    [Fact]
+    public void A_zero_token_run_without_a_model_is_reliable_but_never_a_baseline()
+    {
+        var noModel = LedgerRun.From(ClaudeResultParser.Parse("""{"type":"user","sessionId":"s"}"""), "run-0", LedgerPaths.Model, "local") with
+        {
+            TemplateId = "minimal-api-endpoint",
+            PromptKey = "k",
+        };
+        var ledger = TokenLedger.Empty();
+        ledger.Append(noModel);
+
+        Assert.False(noModel.TotalsUnreliable);
+        Assert.Null(ledger.FindBaseline("minimal-api-endpoint", "k"));
+    }
+
+    [Fact]
+    public void A_deterministic_run_that_invoked_no_model_is_an_accepted_comparison()
+    {
+        var ledger = TokenLedger.Empty();
+        ledger.Record(ModelRun("run-a", "k", 7000, T0));
+        var det = LedgerRun.From(ClaudeResultParser.Parse("""{"type":"result","subtype":"success","num_turns":0}"""), "run-d", LedgerPaths.Deterministic, "local") with
+        {
+            At = T0.AddDays(1),
+            TemplateId = "minimal-api-endpoint",
+            TemplateVersion = "1.0.0",
+            PromptKey = "k",
+            UsedTemplate = true,
+        };
+
+        var c = ledger.Record(det)!;
+
+        Assert.True(c.Accepted);
+        Assert.Equal(7000, c.Saved.Output);
     }
 
     [Fact]
