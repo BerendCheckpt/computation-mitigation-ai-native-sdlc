@@ -7,13 +7,15 @@
 //   dotnet run scripts/aico-ci.cs -- generate minimal-api-endpoint --out <dir> entity=Order project=Shop.Api
 //   dotnet run scripts/aico-ci.cs -- detect --metric ci_failure_rate --history ops/metrics/ci_failure_rate.json --current 0.08
 //   dotnet run scripts/aico-ci.cs -- kpi --logs .aico --out reports/kpi.md
-//   dotnet run scripts/aico-ci.cs -- ledger record --result <claude-result.json|session.jsonl> [--result <subagent.jsonl> …] --path model --source stage-6-agent-fix [--out <fragment.jsonl>]
+//   dotnet run scripts/aico-ci.cs -- ledger record --result <claude-result.json|session.jsonl> [--result <subagent.jsonl> …] --path model --source local-session [--out <fragment.jsonl>]
 //                                                                       (repeated --result files are summed: main transcript + sub-agent transcripts)
 //   dotnet run scripts/aico-ci.cs -- ledger merge --from <dir-with-fragments>
 //   dotnet run scripts/aico-ci.cs -- ledger report | ledger check      → reports/token-ledger.md (check: fails if stale)
 //   dotnet run scripts/aico-ci.cs -- sonar [--url <sonar url>] [--project cnu-aico]
 //                                                                       → bloat / conventions / bugs (no security); exit 2 on Blocker/High, 1 if unreachable
-//                                                                         url: --url, else $SONAR_HOST_URL, else http://host.docker.internal:9000; token: $SONAR_TOKEN
+//                                                                         url: --url, else $SONAR_HOST_URL, else http://host.docker.internal:9000
+//                                                                         auth: in a sandbox the sbx proxy adds the Authorization header (`sbx secret set sonar`);
+//                                                                         $SONAR_TOKEN is optional, only for running outside a sandbox
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;

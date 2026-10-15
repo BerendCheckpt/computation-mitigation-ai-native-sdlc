@@ -53,6 +53,10 @@ capabilities:
           # git fetch/push over HTTPS and gh (issue view, pr create). The Claude workload does not allow these.
           - github.com:443
           - api.github.com:443
+          # The SonarQube server on the host (sandbox aico-sonarqube, published on host port 9000). Listed here because
+          # the sonar credential below may only inject into an allowed host; `sbx policy allow network localhost:9000`
+          # on the host is still what opens the route.
+          - host.docker.internal:9000
 
   # GitHub token from `sbx secret set github`, injected by the host proxy; it never enters the VM.
   - type: com.docker.sandbox/credential@1
@@ -67,5 +71,19 @@ capabilities:
         inject:
           - {domain: api.github.com, header: Authorization, format: "Bearer %s"}
           - {domain: github.com, header: Authorization, format: "Bearer %s"}
+
+  # SonarQube token from `sbx secret set sonar`. Inject-only (no env var, not even a sentinel): the proxy adds the
+  # Authorization header to requests to the SonarQube server, so the scanner and `aico-ci sonar` need no token.
+  # credential@1 inject rules name a host, not a port; the allow entry above limits it to port 9000.
+  - type: com.docker.sandbox/credential@1
+    description: SonarQube access for dotnet-sonarscanner and aico-ci sonar
+    optional: true
+    config:
+      service: sonar
+      phase: [runtime]
+      apiKey:
+        proxyManaged: true
+        inject:
+          - {domain: host.docker.internal, header: Authorization, format: "Bearer %s"}
 
 dockerfile: aico-dotnet.dockerfile

@@ -25,8 +25,9 @@ if that is set. Any machine with SonarQube at that location works.
    dotnet build Cnu.AICO.slnx --no-incremental
    dotnet sonarscanner end
    ```
-   The token comes from `SONAR_TOKEN`, which the sandbox proxy injects from the engineer's `sbx secret set sonar`.
-   Never ask for the token, never type it, and never print it.
+   No token is passed: the sandbox proxy adds the `Authorization` header to every request to the SonarQube server,
+   from the secret the engineer stored once with `sbx secret set sonar`. The token never enters the sandbox. Never
+   ask for a token, never type one, and never print one.
 3. Report the findings:
    ```bash
    dotnet run scripts/aico-ci.cs -- sonar

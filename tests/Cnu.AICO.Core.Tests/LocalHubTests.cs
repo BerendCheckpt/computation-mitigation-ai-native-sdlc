@@ -159,6 +159,7 @@ public class LocalHubIssueTests
     [InlineData("stage:spec", "write-spec")]
     [InlineData("stage:plan", "work/")]
     [InlineData("agent-fix-allowed", "failing test first")]
+    [InlineData("stage:maintain", "incident-diagnoser")]
     [InlineData("bug", "Implement what the issue asks")]
     public void Prompt_has_a_fixed_hint_per_stage_label(string label, string expected)
     {
@@ -170,6 +171,15 @@ public class LocalHubIssueTests
         Assert.Contains("match_template", prompt);
         Assert.Contains("data", prompt);
         Assert.False(prompt.StartsWith('-'));
+        Assert.DoesNotContain('`', prompt);
+    }
+
+    [Fact]
+    public void Maintain_hint_is_read_only_and_ranks_after_agent_fix()
+    {
+        var prompt = HubCommands.BuildPrompt(9, ["stage:maintain"]);
+        Assert.Contains("Diagnose read-only with the incident-diagnoser agent; change no code; write the diagnosis as an issue comment.", prompt);
+        Assert.Equal("agent-fix-allowed", HubIssues.Stage(["stage:maintain", "agent-fix-allowed"]));
     }
 
     [Fact]
@@ -257,6 +267,15 @@ public class LocalHubParsingTests
         Assert.Equal(["ann"], issues[0].Assignees);
         Assert.True(issues[1].PlanAllowed);
         Assert.Equal("stage:spec", issues[1].Stage);
+    }
+
+    [Fact]
+    public void Single_issue_is_re_read_with_fresh_labels_and_state()
+    {
+        var critical = GitHubData.ParseIssue("""{"number":4,"state":"open","title":"t","html_url":"u","labels":[{"name":"critical"}],"assignees":[]}""");
+        Assert.False(critical!.PlanAllowed);
+        Assert.Null(GitHubData.ParseIssue("""{"number":4,"state":"closed","title":"t","labels":[]}"""));
+        Assert.Null(GitHubData.ParseIssue("""{"number":4,"state":"open","title":"t","labels":[],"pull_request":{}}"""));
     }
 
     [Fact]

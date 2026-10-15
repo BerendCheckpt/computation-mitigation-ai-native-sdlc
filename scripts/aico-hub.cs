@@ -193,7 +193,7 @@ async Task Handle(HttpListenerContext ctx)
     var parts = path.Trim('/').Split('/');
     var (status, result) = (method, parts) switch
     {
-        ("POST", ["api", "issues", var n, "plan"]) when int.TryParse(n, out var number) => Plan(number),
+        ("POST", ["api", "issues", var n, "plan"]) when int.TryParse(n, out var number) => await Plan(number),
         ("POST", ["api", "sandboxes", var name, "stop"]) => Stop(Uri.UnescapeDataString(name)),
         ("POST", ["api", "sonarqube", "start"]) => StartSonar(),
         ("POST", ["api", "todos"]) => AddTodo(input),
@@ -208,12 +208,23 @@ bool HostAllowed(string host, bool fromSandbox) =>
     host == $"127.0.0.1:{port}" || host == $"localhost:{port}" || (fromSandbox && host == $"host.docker.internal:{port}");
 
 // ---------------------------------------------------------------- actions
-(int, HubActionResult) Plan(int number)
+async Task<(int, HubActionResult)> Plan(int number)
 {
-    var issue = issues.FirstOrDefault(i => i.Number == number);
-    if (issue is null)
+    if (!issues.Any(i => i.Number == number))
         return (404, Result(false, $"#{number} is not an open issue (yet); wait for the next refresh."));
-    if (!issue.PlanAllowed)
+    // Re-read the issue: the list is cached for up to 60 s, and a 'critical' label added since then must still block.
+    HubIssue? issue;
+    try
+    {
+        issue = GitHubData.ParseIssue(await GitHubGet($"repos/{repo}/issues/{number}"));
+    }
+    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+    {
+        return (502, Result(false, $"Could not re-read #{number} from GitHub: {ex.Message}"));
+    }
+    if (issue is null)
+        return (404, Result(false, $"#{number} is no longer an open issue."));
+    if (!HubIssues.Action(issue.Labels).PlanAllowed)
         return (403, Result(false, $"#{number} is critical: human only."));
     var name = HubCommands.SandboxName(number);
     if (sandboxes.Any(s => s.Name == name))

@@ -70,14 +70,16 @@ host: sbx (+ git, repo checkout [default]) — no Docker Desktop, no .NET
 5. On the first Plan, `/login` in Claude once.
 
 ## Change list: every file, with justification
-**New files (8)**
+**New files (12)**
 | File | Why it can't be an extension |
 |---|---|
 | `work/0001-local-first-sdlc/spec.md`, `plan.md` | The requirements you named; nothing exists yet |
-| `sandbox/aico-dotnet/aico-dotnet.yaml` + `aico-dotnet.dockerfile` | A v3 **mixin** kit: the .NET 10 SDK, a pinned `actionlint`, and `dotnet-sonarscanner` on top of the Claude workload (which already has git, gh, jq and node). Its network policy covers `api.nuget.org`, `builds.dotnet.microsoft.com` and `github.com`. `sbx` builds a local kit directory itself, so no registry is needed |
+| `sandbox/aico-dotnet/aico-dotnet.yaml` + `aico-dotnet.dockerfile` | A v3 **mixin** kit: the .NET 10 SDK, a pinned `actionlint`, and `dotnet-sonarscanner` on top of the Claude workload (which already has git, gh, jq and node). Its runtime network policy covers `api.nuget.org`, `github.com`, `api.github.com` and the SonarQube port `host.docker.internal:9000` (the SDK is downloaded at kit build, so no .NET download host at runtime), and it declares the proxy-injected `github` and `sonar` credentials. `sbx` builds a local kit directory itself, so no registry is needed |
 | `sbxenv.yaml` (repo root) | The sandbox definition: `schemaVersion: "1"`, the v3 Claude workload `docker.io/docker/sbx-kit-claude:<pinned>` plus `./sandbox/aico-dotnet`, `workspace: {path: ., clone: true}`, and no `lifecycle` or `command` secrets. Clone mode mounts the repo read-only, so an agent can't rewrite this file (the safety rule in the docs) |
 | `scripts/aico-hub.cs` | The hub: a local server that never runs in CI; BCL `HttpListener`, no packages. CI publishes it as a Native AOT single-file executable [default] |
 | `src/Cnu.AICO.Core/Ops/LocalHub.cs` + `tests/…/LocalHubTests.cs` | Testable hub logic: fold hook events into agents and sub-agents; policy check per issue (`PolicyEvaluator`); prompt and `sbx` argument list |
+| `src/Cnu.AICO.Core/Ops/SonarFindings.cs` | Testable classification for `aico-ci sonar` (bloat, conventions, bugs; Blocker/High = critical), kept out of the script like the other Core logic |
+| `.claude/launch.json` | A 6-line URL-only entry, so Claude desktop's preview opens the running hub in its browser pane; no existing file holds launch entries |
 | `.claude/skills/sonarqube/SKILL.md` | The requested skill |
 | `.github/workflows/hub-release.yml` | Builds `aico-hub` (Native AOT for win-x64, osx-arm64 and linux-x64) on a `hub-v*` tag and attaches it to a GitHub Release. This is the only way to give the host a hub without installing .NET. No model is involved, and it needs only `contents: write` |
 
@@ -142,12 +144,16 @@ host: sbx (+ git, repo checkout [default]) — no Docker Desktop, no .NET
 - **Event intake:** `/events` accepts hook events only from sandboxes, which reach it through `host.docker.internal`.
 - **Issue cards:** issues are read through the GitHub REST API with the engineer's PAT, so there is no `gh` on the host. Sandbox status comes from `sbx ls`.
 - **Plan button:**
-  - From the repo checkout it runs `sbx run -d --name aico-issue-N` with `sbxenv.yaml` (clone mode) and `-- --permission-mode plan "<prompt>"`, with `AICO_ISSUE=N` and `AICO_HUB_URL` set.
+  - First it re-reads the issue from GitHub, so a `critical` label added since the last refresh still blocks.
+  - Then, from the repo checkout, it runs two commands:
+    1. `sbx env create --force --name aico-issue-N --env-arg issue=N <checkout>`, which creates the sandbox from `sbxenv.yaml` (clone mode, kits, `AICO_ISSUE`, `AICO_HUB_URL`) without attaching. `sbx env` takes no agent arguments.
+    2. `sbx run --detach --name aico-issue-N -- "<prompt>" --permission-mode plan`. The prompt comes first: a first argument that is not a flag replaces sbx's default `--dangerously-skip-permissions`, so Claude starts in plan mode. `disableBypassPermissionsMode` in the project settings is the safety net.
   - The prompt holds only the issue number and a fixed hint per stage label:
     - `stage:intent` → write-intent
     - `stage:spec` → write-spec
     - `stage:plan` → plan.md
     - `agent-fix-allowed` → failing test first
+    - `stage:maintain` → read-only diagnosis with the incident-diagnoser agent, written as an issue comment
 
     It also tells the agent to work on branch `issue-N`. The issue text is read inside the VM with `gh issue view`, as data.
   - Arguments are passed through `ArgumentList`.

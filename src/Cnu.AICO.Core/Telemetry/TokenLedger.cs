@@ -34,7 +34,7 @@ public sealed record LedgerRun : LedgerEntry
     /// <summary><see cref="LedgerPaths.Model"/> (the model did the work) or <see cref="LedgerPaths.Deterministic"/> (it called a template tool).</summary>
     public required string Path { get; init; }
 
-    /// <summary>What produced the run: the workflow name (stage-6-agent-fix, claude-review, …) or "manual".</summary>
+    /// <summary>What produced the run: a local agent session (e.g. "local-session", recorded by the SessionEnd hook in its sandbox) or "manual".</summary>
     public required string Source { get; init; }
     public string? Context { get; init; }
 
