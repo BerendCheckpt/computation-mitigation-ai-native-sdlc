@@ -12,7 +12,7 @@ linked to the issue. Never start design or code in this skill.
 1. Read the issue (or chat) and restate the problem in one sentence.
 2. Ask analyst-style questions **only for what is missing**, batched in one comment (max 5):
    scope, affected users, constraints (compliance, retailers, deadlines), definition of success, out of scope.
-   In GitHub, post them as one issue comment and stop; resume when the analyst answers or mentions `@claude`.
+   In GitHub, post them as one issue comment and stop. Resume when the engineer reattaches to this agent (hub → Attach) after the analyst has answered.
 3. Deterministic check: call `match_template` with the problem statement. If a crystallized template already covers
    it, say so in the intent under "Existing deterministic flows" — the design stage will reference it.
 4. Write `intent.md` with exactly these sections:
