@@ -136,6 +136,86 @@ public class AnomalyDetectorTests
         Assert.Equal(Band.Act, AnomalyDetector.Evaluate("throughput", [100, 101, 99, 100, 102, 98, 100, 101], 80, higherIsWorse: false).Band);
 }
 
+public class SonarFindingsTests
+{
+    // Shape of GET /api/issues/search (SonarQube 10.x+/2025+: `impacts` plus the legacy `severity`/`type`).
+    const string Page = """
+        {"paging":{"pageIndex":1,"pageSize":500,"total":4},
+         "issues":[
+          {"key":"i1","rule":"csharpsquid:S3776","severity":"CRITICAL","component":"cnu-aico:src/A.cs","line":12,
+           "message":"Refactor this method to reduce its Cognitive Complexity.","tags":["brain-overload"],
+           "impacts":[{"softwareQuality":"MAINTAINABILITY","severity":"HIGH"}]},
+          {"key":"i2","rule":"csharpsquid:S101","severity":"MINOR","component":"cnu-aico:src/B.cs","line":3,
+           "message":"Rename class 'foo'.","tags":["convention"],
+           "impacts":[{"softwareQuality":"MAINTAINABILITY","severity":"LOW"}]},
+          {"key":"i3","rule":"csharpsquid:S2259","severity":"MAJOR","component":"cnu-aico:src/C.cs","line":40,
+           "message":"'x' is null on at least one execution path.","tags":["cwe"],
+           "impacts":[{"softwareQuality":"RELIABILITY","severity":"MEDIUM"}]},
+          {"key":"i4","rule":"common-cs:DuplicatedBlocks","severity":"MAJOR","component":"cnu-aico:src/D.cs",
+           "message":"2 duplicated blocks of code must be removed.","tags":[],
+           "impacts":[{"softwareQuality":"MAINTAINABILITY","severity":"MEDIUM"}]}]}
+        """;
+
+    [Fact]
+    public void Parses_a_page_and_strips_the_project_from_the_component()
+    {
+        var page = SonarFindings.ParsePage(Page);
+
+        Assert.Equal(4, page.Total);
+        Assert.Equal(4, page.Issues.Count);
+        Assert.Equal(("src/A.cs", 12), (page.Issues[0].File, page.Issues[0].Line));
+        Assert.Null(page.Issues[3].Line);
+    }
+
+    [Theory]
+    [InlineData("i1", SonarCategory.Bloat)]       // brain-overload tag
+    [InlineData("i2", SonarCategory.Convention)]  // remaining maintainability
+    [InlineData("i3", SonarCategory.Bug)]         // reliability impact
+    [InlineData("i4", SonarCategory.Bloat)]       // duplication rule
+    public void Classifies_bloat_conventions_and_bugs(string key, SonarCategory expected) =>
+        Assert.Equal(expected, SonarFindings.Classify(SonarFindings.ParsePage(Page).Issues.Single(i => i.Key == key)));
+
+    [Fact]
+    public void Unused_and_redundant_code_is_bloat()
+    {
+        var issue = new SonarIssue("k", "csharpsquid:S9999", "x.cs", 1, "m", "MINOR", ["unused"], [new("MAINTAINABILITY", "LOW")]);
+        Assert.Equal(SonarCategory.Bloat, SonarFindings.Classify(issue));
+        Assert.Equal(SonarCategory.Bloat, SonarFindings.Classify(issue with { Tags = ["redundant"] }));
+    }
+
+    [Fact]
+    public void Blocking_means_a_Blocker_or_High_impact_or_a_legacy_Blocker_or_Critical()
+    {
+        var issues = SonarFindings.ParsePage(Page).Issues;
+        var low = issues.Single(i => i.Key == "i2");
+
+        Assert.True(SonarFindings.IsBlocking(issues.Single(i => i.Key == "i1")));
+        Assert.False(SonarFindings.IsBlocking(low));
+        Assert.True(SonarFindings.IsBlocking(low with { Severity = "BLOCKER" }));
+        Assert.True(SonarFindings.IsBlocking(low with { Impacts = [new("RELIABILITY", "BLOCKER")] }));
+        Assert.False(SonarFindings.IsBlocking(low with { Impacts = [new("SECURITY", "HIGH")] }));   // security is out of scope
+    }
+
+    [Fact]
+    public void Report_groups_findings_and_is_deterministic()
+    {
+        var issues = SonarFindings.ParsePage(Page).Issues;
+        var md = SonarFindings.Report("cnu-aico", issues);
+
+        Assert.Equal(md, SonarFindings.Report("cnu-aico", issues.Reverse().ToList()));
+        Assert.True(md.IndexOf("### Bloat", StringComparison.Ordinal) < md.IndexOf("### Conventions", StringComparison.Ordinal));
+        Assert.True(md.IndexOf("### Conventions", StringComparison.Ordinal) < md.IndexOf("### Bugs", StringComparison.Ordinal));
+        Assert.Contains("`src/A.cs:12` HIGH `csharpsquid:S3776`", md);
+        Assert.Contains("`src/D.cs` MEDIUM `common-cs:DuplicatedBlocks`", md);
+        Assert.Contains("Blocking (Blocker/High): 1", md);
+    }
+
+    [Fact]
+    public void Search_path_asks_only_for_maintainability_and_reliability() =>
+        Assert.Equal("api/issues/search?componentKeys=cnu-aico&impactSoftwareQualities=MAINTAINABILITY,RELIABILITY&issueStatuses=OPEN,CONFIRMED&ps=500&p=2",
+            SonarFindings.SearchPath("cnu-aico", 2));
+}
+
 public class KpiReportTests
 {
     [Fact]

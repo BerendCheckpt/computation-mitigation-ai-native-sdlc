@@ -1,5 +1,6 @@
-# Stage 2 — Design. A merged intent.md triggers the requirements-and-design pass.
-# Deterministic first: a crystallized template that covers the intent is referenced, not re-specified.
+# Stage 2 — Design. A merged intent.md starts the requirements-and-design pass. Design is done by a local agent in
+# its own Docker Sandbox, started by an engineer from the hub, so this workflow uses NO model: it only opens a
+# tracking issue. Deterministic first: a crystallized template that covers the intent is referenced, not re-specified.
 name: stage-2-spec
 
 on:
@@ -8,52 +9,31 @@ on:
     paths: ["work/**/intent.md"]
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
   issues: write
-  id-token: write
 
 jobs:
-  spec:
+  notify:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
-      - id: changed
-        name: Which intents were accepted?
+      - name: Open a "spec" issue per accepted intent
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          files=$(git diff --name-only HEAD~1 HEAD -- 'work/**/intent.md' | tr '\n' ' ')
-          # Skip intents that already have a spec (e.g. an intent edit after design started).
-          todo=""; for f in $files; do [ -f "$(dirname "$f")/spec.md" ] || todo="$todo $f"; done
-          echo "todo=${todo# }" >> "$GITHUB_OUTPUT"
-      - if: steps.changed.outputs.todo != ''
-        id: claude
-        uses: anthropics/claude-code-action@v1
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          prompt: |
-            REPO: ${{ github.repository }}
-            Accepted intents: ${{ steps.changed.outputs.todo }}
-
-            For each intent, use the write-spec skill (with the security-policy skill as a constraint) and open one PR
-            per spec titled "spec: <slug>" with label stage:spec. Request review from the CODEOWNERS of spec.md.
-          # Design is the one stage that gets the most capable model (ADR 0004).
-          claude_args: |
-            --model claude-opus-5-5
-            --max-turns 40
-            --mcp-config '{"mcpServers":{"cnu-aico":{"type":"stdio","command":"dotnet","args":["run","--project","src/Cnu.AICO.McpServer","--"],"env":{"CNU_AICO_CONTEXT":"build"}}}}'
-            --allowedTools Read,Write,Edit,Glob,Grep,Bash(git:*),Bash(gh pr create:*),mcp__cnu-aico__match_template,ReadMcpResourceTool
-      - name: Record token usage (ledger)
-        if: always() && steps.claude.outputs.execution_file != ''
-        uses: ./.github/actions/aico-record-usage
-        with:
-          execution-file: ${{ steps.claude.outputs.execution_file }}
-          source: stage-2-spec
-          context: build
-          prompt: "Write specs for accepted intents: ${{ steps.changed.outputs.todo }}"
-          ref: ""
+          for intent in $(git diff --name-only HEAD~1 HEAD -- 'work/**/intent.md'); do
+            dir=$(dirname "$intent")
+            # Skip intents that already have a spec (e.g. an intent edit after design started).
+            [ -f "$dir/spec.md" ] && continue
+            {
+              echo "Intent accepted: \`$intent\`."
+              echo
+              echo "Next: start a local agent from the hub (**Plan** on this issue). It runs in its own sandbox in **plan mode**"
+              echo "and uses the \`write-spec\` skill (with the \`security-policy\` skill as a constraint) to write \`$dir/spec.md\`."
+              echo "Open the PR \"spec: $(basename "$dir")\" with label \`stage:spec\`; the CODEOWNERS of \`spec.md\` approve it."
+              echo "Crystallized templates that cover the intent are referenced through the \`cnu-aico\` MCP tools, not re-specified."
+            } > body.md
+            gh issue create --title "spec: $(basename "$dir")" --label "stage:spec" --body-file body.md
+          done

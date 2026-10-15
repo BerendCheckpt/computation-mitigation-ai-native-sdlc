@@ -1,0 +1,83 @@
+# Release the local hub (aico-hub) as a self-contained Native AOT executable per platform, so engineers run it on the
+# host without installing .NET. Deterministic: no model. Triggered by a `hub-v*` tag (or manually for an existing tag).
+name: hub-release
+
+on:
+  push:
+    tags: ["hub-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing hub-v* tag to (re)build and release
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hub-release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # workflow_dispatch accepts any string: only hub-v* tags are built and released (release needs build).
+    if: startsWith(inputs.tag || github.ref_name, 'hub-v')
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - rid: win-x64
+            os: windows-latest
+            exe: aico-hub.exe
+          - rid: osx-arm64
+            os: macos-latest
+            exe: aico-hub
+          - rid: linux-x64
+            os: ubuntu-latest
+            exe: aico-hub
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish aico-hub (Native AOT, ${{ matrix.rid }})
+        run: dotnet publish scripts/aico-hub.cs -r ${{ matrix.rid }} -o out
+      - name: Name the asset per platform
+        shell: bash
+        run: |
+          mkdir -p dist
+          ext=""; case "${{ matrix.exe }}" in *.exe) ext=".exe" ;; esac
+          cp "out/${{ matrix.exe }}" "dist/aico-hub-${{ matrix.rid }}$ext"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aico-hub-${{ matrix.rid }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: aico-hub-*
+          path: dist
+          merge-multiple: true
+      - name: Create or update the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          ls -l dist
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --title "aico-hub $TAG" --notes "Local hub (aico-hub), Native AOT for win-x64, osx-arm64 and linux-x64. Run it on the host, never in a sandbox. Deterministic build, no model."
+          fi

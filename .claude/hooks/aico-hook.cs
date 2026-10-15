@@ -1,8 +1,9 @@
 #:project ../../src/Cnu.AICO.Core/Cnu.AICO.Core.csproj
 #:property PublishAot=false
 // Claude Code hooks for the deterministic layer (.NET 10 file-based app; compiled once, then cached).
-//   dotnet run .claude/hooks/aico-hook.cs -- <match|protect-paths|no-secrets|plan-scope|format>
+//   dotnet run .claude/hooks/aico-hook.cs -- <match|protect-paths|no-secrets|plan-scope|format|lint|track>
 // Reads the hook event JSON from stdin. Hooks are small, concrete and explain every block.
+// `track` reports to the local hub ($AICO_HUB_URL) and, before each `git commit`, writes and stages the session's token-ledger fragment.
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -25,6 +26,8 @@ return command switch
     "no-secrets" => NoSecrets(),
     "plan-scope" => PlanScope(),
     "format" => Format(),
+    "lint" => Lint(),
+    "track" => Track(),
     _ => Fail($"unknown hook command '{command}'"),
 };
 
@@ -125,6 +128,195 @@ int Format()
     });
     p?.WaitForExit(TimeSpan.FromSeconds(30));
     return 0;
+}
+
+// PostToolUse(Edit|Write): CI safety (CLAUDE.md). A workflow edit is checked by actionlint, and its findings go back to
+// Claude (exit 2). A .gitignore edit shows what git now ignores, so files CI needs stay tracked.
+int Lint()
+{
+    if (relPath is null)
+        return 0;
+    if (relPath.Contains(".github/workflows/", StringComparison.Ordinal))
+    {
+        if (Run(cwd, 60, "actionlint", relPath) is not { } lint)
+        {
+            Console.Error.WriteLine($"[aico-hook lint] actionlint is not installed; '{relPath}' was not checked. Install it, or rely on CI.");
+            return 0;
+        }
+        if (lint.Code == 0)
+            return 0;
+        Console.Error.WriteLine($"actionlint found problems in '{relPath}':\n{lint.Output}");
+        return 2;
+    }
+    if (Path.GetFileName(relPath) == ".gitignore" && Run(cwd, 30, "git", "status", "--short", "--ignored") is { Code: 0 } status)
+        return Emit("PostToolUse", new JsonObject
+        {
+            ["additionalContext"] = "[aico-hook lint] .gitignore changed. `git status --short --ignored` (first 20 lines); confirm the files CI needs are still tracked:\n"
+                + string.Join("\n", status.Output.TrimEnd().Split('\n').Take(20)),
+        });
+    return 0;
+}
+
+// SessionStart|SessionEnd|SubagentStart|SubagentStop|Notification, PostToolUse(TodoWrite|TaskCreate|TaskUpdate):
+// tell the local hub what this agent is doing. Never blocks: no hub (unset or unreachable) means nothing is sent.
+// PreToolUse(Bash `git commit`): writes the session's token-ledger fragment and stages it, so every commit carries
+// the usage so far (hooks never push). Never blocks the commit; a problem is one stderr line.
+// The fragment is written only at commit time: SessionEnd hooks get at most 60 s, and a fragment written after the
+// last commit would never leave the sandbox. Usage after the last commit is not recorded.
+int Track()
+{
+    if (Str(input, "hook_event_name") == "PreToolUse")
+    {
+        if (Regex.IsMatch(Str(toolInput, "command") ?? "", @"(^|&&|;|\|\|)\s*git\s+commit(\s|$)"))
+        {
+            try
+            {
+                if (RecordSessionLedger() is { } fragment)
+                {
+                    if (Run(cwd, 15, "git", "add", "--", fragment) is not { Code: 0 })
+                        Console.Error.WriteLine($"[aico-hook track] could not stage {fragment}; commit it yourself.");
+                }
+                else
+                    Console.Error.WriteLine("[aico-hook track] no token-ledger fragment written (no transcript or no usage); the commit goes ahead.");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Console.Error.WriteLine($"[aico-hook track] token-ledger fragment not written: {ex.Message}");
+            }
+        }
+        return 0;
+    }
+
+    var hub = Environment.GetEnvironmentVariable("AICO_HUB_URL");
+    if (!string.IsNullOrWhiteSpace(hub))
+    {
+        // An agent started by the hub has AICO_ISSUE=N, and its sandbox is named aico-issue-N (as `sbx ls` shows it).
+        var envIssue = int.TryParse(Environment.GetEnvironmentVariable("AICO_ISSUE"), out var n) && n > 0 ? n : (int?)null;
+        var branch = Run(cwd, 5, "git", "rev-parse", "--abbrev-ref", "HEAD") is { Code: 0 } git ? git.Output.Trim() : null;
+        var issue = branch is not null && Regex.Match(branch, @"^issue-(\d+)$") is { Success: true } m ? int.Parse(m.Groups[1].Value) : envIssue;
+        var toolName = Str(input, "tool_name");
+        var response = input["tool_response"] as JsonObject;
+        var payload = new JsonObject
+        {
+            ["event"] = Str(input, "hook_event_name"),
+            ["sandbox"] = envIssue is { } i ? $"aico-issue-{i}" : Environment.MachineName,
+            ["sessionId"] = Str(input, "session_id"),
+            ["agentId"] = Str(input, "agent_id"),
+            ["agentType"] = Str(input, "agent_type"),
+            ["issue"] = issue,
+            ["branch"] = branch,
+            ["cwd"] = cwd,
+            ["message"] = Str(input, "message"),
+            ["toolName"] = toolName is "TodoWrite" or "TaskCreate" or "TaskUpdate" ? toolName : null,
+            ["todos"] = toolName == "TodoWrite"
+                ? new JsonArray((toolInput["todos"] as JsonArray ?? []).Select(t => (JsonNode?)new JsonObject
+                {
+                    ["content"] = Str(t, "content"),
+                    ["status"] = Str(t, "status"),
+                }).ToArray())
+                : null,
+            ["task"] = toolName switch
+            {
+                "TaskCreate" => new JsonObject
+                {
+                    ["id"] = Str(response?["task"], "id") ?? Str(response, "taskId") ?? Str(response, "id"),
+                    ["subject"] = Str(toolInput, "subject"),
+                    ["status"] = "pending",
+                },
+                "TaskUpdate" => new JsonObject
+                {
+                    ["id"] = Str(toolInput, "taskId"),
+                    ["subject"] = Str(toolInput, "subject"),
+                    ["status"] = Str(toolInput, "status"),
+                },
+                _ => null,
+            },
+            ["time"] = DateTime.UtcNow.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
+        };
+        try
+        {
+            var url = new Uri(hub.TrimEnd('/') + "/events");
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+            using var request = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = new StringContent(payload.ToJsonString(), new System.Net.Http.Headers.MediaTypeHeaderValue("application/json")),
+            };
+            // The hub listens on localhost only (Windows http.sys rejects Host: host.docker.internal).
+            request.Headers.Host = $"localhost:{url.Port}";
+            using var reply = http.Send(request);
+            if (!reply.IsSuccessStatusCode)
+                Console.Error.WriteLine($"[aico-hook track] hub answered {(int)reply.StatusCode} for {Str(input, "hook_event_name")}.");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or UriFormatException or InvalidOperationException)
+        {
+            // The hub is optional: an engineer without it loses nothing but the overview.
+        }
+    }
+
+    return 0;
+}
+
+// The session's own transcript plus its sub-agents' (<transcript without .jsonl>/subagents/*.jsonl) → one fragment,
+// rewritten each time (`ledger record --out` appends). Returns the fragment's repo-relative path, or null.
+string? RecordSessionLedger()
+{
+    var transcript = Str(input, "transcript_path") is { } t && t.StartsWith('~')
+        ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), t[1..].TrimStart('/', '\\'))
+        : Str(input, "transcript_path");
+    var session = Str(input, "session_id");
+    if (transcript is null || session is null || !File.Exists(transcript) || !File.Exists(Path.Combine(cwd, "scripts/aico-ci.cs")))
+        return null;
+
+    var fragment = $"ledger/fragments/{Regex.Replace(session, "[^A-Za-z0-9_-]", "_")}.jsonl";
+    var subagents = Path.Combine(Path.GetDirectoryName(transcript)!, Path.GetFileNameWithoutExtension(transcript), "subagents");
+    List<string> ledgerArgs = ["run", "scripts/aico-ci.cs", "--", "ledger", "record", "--result", transcript];
+    if (Directory.Exists(subagents))
+        foreach (var file in Directory.GetFiles(subagents, "*.jsonl").Order(StringComparer.Ordinal))
+            ledgerArgs.AddRange(["--result", file]);
+    ledgerArgs.AddRange(["--source", "local-session", "--context", "build", "--out", fragment]);
+    if (File.Exists(Path.Combine(cwd, fragment)))
+        File.Delete(Path.Combine(cwd, fragment));
+    Run(cwd, 100, "dotnet", [.. ledgerArgs]); // within the hook timeout (120 s): a first run compiles aico-ci
+    return File.Exists(Path.Combine(cwd, fragment)) ? fragment : null;
+}
+
+static string? Str(JsonNode? node, string key) =>
+    (node as JsonObject)?[key] switch
+    {
+        JsonValue v when v.TryGetValue<string>(out var s) => s,
+        JsonValue v => v.ToJsonString(),
+        _ => null,
+    };
+
+// Runs a tool with an argument list (no shell); null when it is not installed.
+static (int Code, string Output)? Run(string workingDirectory, int timeoutSeconds, string file, params string[] arguments)
+{
+    var psi = new ProcessStartInfo(file)
+    {
+        WorkingDirectory = workingDirectory,
+        RedirectStandardOutput = true,
+        RedirectStandardError = true,
+    };
+    foreach (var a in arguments)
+        psi.ArgumentList.Add(a);
+    try
+    {
+        using var p = Process.Start(psi);
+        if (p is null)
+            return null;
+        var stdout = p.StandardOutput.ReadToEndAsync();
+        var stderr = p.StandardError.ReadToEndAsync();
+        if (!p.WaitForExit(TimeSpan.FromSeconds(timeoutSeconds)))
+        {
+            p.Kill(entireProcessTree: true);
+            return (-1, "timed out");
+        }
+        return (p.ExitCode, stdout.Result + stderr.Result);
+    }
+    catch (System.ComponentModel.Win32Exception)
+    {
+        return null;
+    }
 }
 
 static int Emit(string eventName, JsonObject output)

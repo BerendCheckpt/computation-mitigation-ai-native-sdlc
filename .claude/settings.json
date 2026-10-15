@@ -27,9 +27,45 @@
       "Bash(git push --force:*)",
       "Bash(curl:*)",
       "Bash(rm -rf:*)"
-    ]
+    ],
+    "disableBypassPermissionsMode": "disable"
   },
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "dotnet run .claude/hooks/aico-hook.cs -- track", "timeout": 30 }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          { "type": "command", "command": "dotnet run .claude/hooks/aico-hook.cs -- track", "timeout": 30 }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "dotnet run .claude/hooks/aico-hook.cs -- track", "timeout": 30 }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "dotnet run .claude/hooks/aico-hook.cs -- track", "timeout": 30 }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          { "type": "command", "command": "dotnet run .claude/hooks/aico-hook.cs -- track", "timeout": 30 }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [
@@ -45,22 +81,31 @@
           { "type": "command", "command": "dotnet run .claude/hooks/aico-hook.cs -- no-secrets", "timeout": 30 },
           { "type": "command", "command": "dotnet run .claude/hooks/aico-hook.cs -- plan-scope", "timeout": 30 }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "if": "Bash(git commit*)", "command": "dotnet run .claude/hooks/aico-hook.cs -- track", "timeout": 120 }
+        ]
       }
     ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
         "hooks": [
-          {
-            "type": "command",
-            "command": "f=$(jq -r '.tool_input.file_path'); case \"$f\" in *.github/workflows/*) actionlint \"$f\" || exit 2;; *.gitignore) git status --short --ignored | head -20;; esac"
-          }
+          { "type": "command", "command": "dotnet run .claude/hooks/aico-hook.cs -- lint", "timeout": 60 }
         ]
       },
       {
         "matcher": "Edit|Write|MultiEdit",
         "hooks": [
           { "type": "command", "command": "dotnet run .claude/hooks/aico-hook.cs -- format", "timeout": 60 }
+        ]
+      },
+      {
+        "matcher": "TodoWrite|TaskCreate|TaskUpdate",
+        "hooks": [
+          { "type": "command", "command": "dotnet run .claude/hooks/aico-hook.cs -- track", "timeout": 30 }
         ]
       }
     ]

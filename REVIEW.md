@@ -1,6 +1,7 @@
 # REVIEW.md — PR review policy
 
-Applied to every PR by Claude Code Review (`.github/workflows/claude-review.yml`) and by human reviewers.
+Applied to every PR by the author's AI review, which runs locally in their agent sandbox before the PR is opened,
+and by human reviewers. No workflow runs a model.
 Derived from our QA requirements. Owner: tech lead (CODEOWNERS).
 
 ## When AI review runs
@@ -26,8 +27,10 @@ Derived from our QA requirements. Owner: tech lead (CODEOWNERS).
 
 ## Human review is mandatory
 - PRs labelled `critical` or `regulated`, or touching `policy.yaml`, `.claude/**`, `.github/workflows/**`,
-  `templates/**`, authentication/authorization, payments, or personal data.
-- AI findings are advice; the human reviewer approves. Use `@claude` in review comments to ask for fixes or explanations.
+  `templates/**`, `sbxenv.yaml`, `sandbox/**`, authentication/authorization, payments, or personal data. This
+  includes PRs with a SonarQube Blocker/High finding, which count as `critical`.
+- AI findings are advice; the human reviewer approves. To get fixes or explanations, pass the review comments to the
+  author's agent sandbox (hub → Attach).
 
 ## Feedback loop
 Findings that recur become a line in `CLAUDE.md` ("Known mistakes") or a hook — not a longer review prompt.

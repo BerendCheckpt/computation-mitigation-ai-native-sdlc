@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "aico-hub", "url": "http://127.0.0.1:5171" }
+  ]
+}

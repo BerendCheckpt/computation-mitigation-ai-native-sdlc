@@ -8,8 +8,8 @@ routes. Owner: SRE + tech lead (CODEOWNERS). Changes to this file change agent a
 |---|---|---|---|---|
 | Normal | < 1σ | nothing | no | — |
 | **Log** | ≥ 1σ | record in the workflow summary | no | — |
-| **Diagnose** | ≥ 2σ | `incident-diagnoser` (read-only) writes an anomaly issue with an intent draft | yes (Sonnet) | issue → human triage |
-| **Act** | ≥ 3σ | Claude opens a fix PR through the review gate, or names a pre-approved runbook | yes (Sonnet) | PR → template-verify → review → CODEOWNERS |
+| **Diagnose** | ≥ 2σ | `maintain-detect` files the anomaly issue itself (`stage:maintain`, no model); the engineer starts an agent sandbox from the hub, where `incident-diagnoser` (read-only) adds a diagnosis and an intent draft | locally, in an agent sandbox | issue → human triage |
+| **Act** | ≥ 3σ | as Diagnose, and `maintain-detect` adds `agent-fix-allowed` for a non-critical metric; the engineer starts an agent sandbox from the hub, which opens a fix PR through the review gate or names a pre-approved runbook | locally, in an agent sandbox | PR → template-verify → review → CODEOWNERS |
 
 ## Metrics
 | Metric | Direction | Baseline | Critical? |

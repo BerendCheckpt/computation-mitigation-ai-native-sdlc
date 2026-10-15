@@ -1,0 +1,90 @@
+# syntax=docker/sandbox-kit:3
+# The toolchain for this repository as an overlay on the v3 Claude Code workload (docker.io/docker/sbx-kit-claude),
+# which already carries git, gh, jq and node. Adds what CLAUDE.md's commands and the sonarqube skill need:
+# the .NET 10 SDK, actionlint and dotnet-sonarscanner. Built locally by sbx from this directory (no registry).
+schemaVersion: "3"
+displayName: Cnu.AICO .NET tools
+description: >-
+  .NET 10 SDK, actionlint and dotnet-sonarscanner at pinned versions, plus the egress a build, a restore
+  and a push need: NuGet and GitHub. Anthropic hosts come from the Claude workload.
+licenses: [MIT, LGPL-3.0-only]
+
+kind: mixin
+version: "1.0.0"
+
+# One arg per tool; each drives the download, the build's version check and the provide.
+args:
+  dotnetChannel:
+    default: "10.0"
+    pattern: '^[0-9]+\.[0-9]+$'
+    description: .NET SDK channel installed with dotnet-install.sh (latest patch of the channel at kit build)
+    buildArg: DOTNET_CHANNEL
+  actionlintVersion:
+    default: "1.7.12"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: actionlint release to install
+    buildArg: ACTIONLINT_VERSION
+  sonarScannerVersion:
+    default: "11.3.0"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: dotnet-sonarscanner (SonarScanner for .NET) version to install
+    buildArg: SONARSCANNER_VERSION
+  telemetryOptOut:
+    default: "1"
+    enum: ["0", "1"]
+    description: DOTNET_CLI_TELEMETRY_OPTOUT; telemetry hosts are not on the allowlist, so the default is off
+    env: DOTNET_CLI_TELEMETRY_OPTOUT
+
+provides:
+  - "dotnet-sdk@${{ kit.args.dotnetChannel }}"
+  - "actionlint@${{ kit.args.actionlintVersion }}"
+  - "dotnet-sonarscanner@${{ kit.args.sonarScannerVersion }}"
+
+capabilities:
+  # Runtime egress only: the overlay is built on the host, so the SDK download (builds.dotnet.microsoft.com)
+  # and the scanner download happen at kit build and need no runtime grant. The hub and SonarQube on the host
+  # (host.docker.internal:5171/9000) are allowed by `sbx policy allow network`, not here.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          # dotnet restore: the service index and package downloads (flat container) are both on this host.
+          - api.nuget.org:443
+          # git fetch/push over HTTPS and gh (issue view, pr create). The Claude workload does not allow these.
+          - github.com:443
+          - api.github.com:443
+          # The SonarQube server on the host (sandbox aico-sonarqube, published on host port 9000). Listed here because
+          # the sonar credential below may only inject into an allowed host; `sbx policy allow network localhost:9000`
+          # on the host is still what opens the route.
+          - host.docker.internal:9000
+
+  # GitHub token from `sbx secret set github`, injected by the host proxy; it never enters the VM.
+  - type: com.docker.sandbox/credential@1
+    description: GitHub access for git and gh
+    optional: true
+    config:
+      service: github
+      phase: [runtime]
+      apiKey:
+        name: GH_TOKEN
+        proxyManaged: true
+        inject:
+          - {domain: api.github.com, header: Authorization, format: "Bearer %s"}
+          - {domain: github.com, header: Authorization, format: "Bearer %s"}
+
+  # SonarQube token from `sbx secret set sonar`. Inject-only (no env var, not even a sentinel): the proxy adds the
+  # Authorization header to requests to the SonarQube server, so the scanner and `aico-ci sonar` need no token.
+  # credential@1 inject rules name a host, not a port, so the header also reaches the hub (host port 5171). The hub
+  # runs on the host as the same user and never reads or logs the Authorization header.
+  - type: com.docker.sandbox/credential@1
+    description: SonarQube access for dotnet-sonarscanner and aico-ci sonar
+    optional: true
+    config:
+      service: sonar
+      phase: [runtime]
+      apiKey:
+        proxyManaged: true
+        inject:
+          - {domain: host.docker.internal, header: Authorization, format: "Bearer %s"}
+
+dockerfile: aico-dotnet.dockerfile

@@ -17,6 +17,9 @@
 /.claude/                           @cnu/tech-leads
 /.claude/skills/security-policy/    @cnu/security
 /.github/                           @cnu/tech-leads @cnu/platform-team
+# Agent isolation: the sandbox definition and its kit
+/sbxenv.yaml                        @cnu/tech-leads @cnu/security
+/sandbox/                           @cnu/tech-leads @cnu/security
 
 # Deterministic layer: template owners + tech lead approve every template change (crystallization gate)
 /templates/                         @cnu/platform-team @cnu/tech-leads
