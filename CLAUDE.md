@@ -10,7 +10,14 @@ AI-native SDLC on GitHub with a deterministic layer: crystallized, human-approve
 - If you implement the same pattern a third time, propose a template with the `crystallize-template` skill.
 
 ## Terminology
-- 'Wiki' means [specify: the GitHub Wiki repo (<repo>.wiki.git) / the docs site / a /wiki folder]. If a term like this is ambiguous, ask with AskUserQuestion before building anything.
+If a term could mean more than one thing, ask with AskUserQuestion before building anything, and add the answer here.
+- **Wiki**: the GitHub Wiki repo (`<repo>.wiki.git`), not `docs/`.
+- **Baseline**: only the *token baseline*, which is the tokens of the previous model run for the same prompt or template. The token ledger sets it automatically. There is never a separate baseline action or workflow. SonarQube's comparison point is the "new-code period", never "baseline".
+- **Critical**: the GitHub label `critical` (customer-facing, data-affecting or security), **or** a SonarQube finding of severity Blocker/Critical (Blocker/High in its newer scheme). Critical work goes to a human: no autonomous fix, no Plan button in the hub, and the PR gets the `critical` label.
+- **Agent**: one Claude Code session, running in its own Docker Sandbox (a microVM with its own kernel). **Sub-agent**: a sub-agent started inside that session; it runs in the same sandbox.
+- **Sandbox**: a Docker Sandboxes microVM (`sbx`). `aico-issue-<N>` is the agent for issue N; `aico-sonarqube` runs the SonarQube server.
+- **Hub**: the local overview page from `aico-hub`. It runs on the host, never in a VM, and opens as a tab in the Claude desktop browser pane. It shows repository issues, running agents and to-do's.
+- **To-do's**: three lists: agents' task lists, "waiting on me" (permission or input requests, plans to approve, open `issue-*` PRs), and the engineer's personal list, which stays on the host.
 
 ## Architecture
 - `src/Cnu.AICO.Core` — spec model, matcher (normalizer, BM25, TF-IDF, slots), policy, generator (Scriban), regen verifier, KPIs, anomaly bands.
