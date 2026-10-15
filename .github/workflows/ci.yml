@@ -36,3 +36,24 @@ jobs:
         with:
           name: test-results
           path: "**/TestResults/*.trx"
+
+  sandbox-kit:
+    # The agent sandbox kit (sbx v3 mixin). The descriptor starts with `# syntax=docker/sandbox-kit:3`, so BuildKit
+    # builds it with that frontend. Build only: nothing is pushed (sbx builds the local kit directory itself).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the aico-dotnet kit (no push)
+        run: docker buildx build -f sandbox/aico-dotnet/aico-dotnet.yaml sandbox/aico-dotnet
+
+  hub-aot:
+    # Native AOT publish of the local hub, so a broken AOT build shows up here before hub-release.
+    # Needs clang and zlib1g-dev, which ubuntu-latest provides.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish aico-hub (Native AOT, linux-x64)
+        run: dotnet publish scripts/aico-hub.cs -r linux-x64 -o out/hub
