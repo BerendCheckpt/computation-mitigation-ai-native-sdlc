@@ -1,0 +1,27 @@
+# The agent sandbox (Docker Sandboxes, `sbx`): one microVM per agent, created by the hub's Plan button with
+#   sbx env create --force --name aico-issue-<N> --env-arg issue=<N> <checkout>
+# Clone mode: the agent works on a private clone inside the VM; the host checkout (and so this file) is mounted
+# read-only, so an agent cannot rewrite its own isolation. Its commits come back with `git fetch sandbox-aico-issue-<N>`.
+# No lifecycle and no secrets here: credentials are bound on the host (`sbx secret set github|sonar`) and injected
+# by the sbx proxy. Protected path (CODEOWNERS: tech leads + security).
+schemaVersion: "1"
+agent: sbx-kit-claude
+
+args:
+  issue:
+    default: "0"
+    pattern: "[0-9]{1,9}"
+    description: GitHub issue number the agent works on (0 = none)
+
+kits:
+  - docker.io/docker/sbx-kit-claude:2.1.296
+  - ./sandbox/aico-dotnet
+
+workspace:
+  path: .
+  clone: true
+
+env:
+  AICO_ISSUE: "${{ env.args.issue }}"
+  AICO_HUB_URL: "http://host.docker.internal:5171"
+  SONAR_HOST_URL: "http://host.docker.internal:9000"
