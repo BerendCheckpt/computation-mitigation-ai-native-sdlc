@@ -74,7 +74,8 @@ capabilities:
 
   # SonarQube token from `sbx secret set sonar`. Inject-only (no env var, not even a sentinel): the proxy adds the
   # Authorization header to requests to the SonarQube server, so the scanner and `aico-ci sonar` need no token.
-  # credential@1 inject rules name a host, not a port; the allow entry above limits it to port 9000.
+  # credential@1 inject rules name a host, not a port, so the header also reaches the hub (host port 5171). The hub
+  # runs on the host as the same user and never reads or logs the Authorization header.
   - type: com.docker.sandbox/credential@1
     description: SonarQube access for dotnet-sonarscanner and aico-ci sonar
     optional: true

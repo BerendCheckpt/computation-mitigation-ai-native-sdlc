@@ -95,9 +95,12 @@ recommended for high-volume automated paths, and not planned for now.
 ## 9. Measuring avoided tokens
 Savings are measured as a side effect of real work. There is no separate measurement job and no extra Claude call.
 
-**The token ledger.** No workflow runs a model. Every agent session runs locally in its own sandbox. When a
-session ends, the `SessionEnd` hook (`aico-hook.cs track`) records its usage as `ledger/fragments/<session>.jsonl`,
-and the fragment is committed with the PR. The usage is read from the session transcript plus its sub-agents'
+**The token ledger.** No workflow runs a model. Every agent session runs locally in its own sandbox. Before each
+`git commit`, a PreToolUse hook (`aico-hook.cs track`) rewrites the session's usage so far as
+`ledger/fragments/<session>.jsonl` and stages it. The fragment therefore travels with the commit and the PR; no hook
+ever pushes. Usage after the last commit is not recorded. The fragment is cumulative, so the rule is **one agent
+session, one PR**: the hub starts one sandbox per issue. A second PR from the same session would count the first PR's
+tokens again. The usage is read from the session transcript plus its sub-agents'
 transcripts: assistant `message.usage`, counted once per message id. A headless `claude -p --output-format json`
 result is also accepted, following the
 [Agent SDK cost-tracking guide](https://code.claude.com/docs/en/agent-sdk/cost-tracking):

@@ -115,7 +115,7 @@ host: sbx (+ git, repo checkout [default]) — no Docker Desktop, no .NET
     - the `jq`/`actionlint` PostToolUse command becomes `aico-hook.cs -- lint`.
   - `.claude/hooks/aico-hook.cs`:
     - `track` POSTs the event to `$AICO_HUB_URL/events`: sandbox, session, issue, branch, and the sub-agent type and id. If the hub isn't reachable, it skips silently.
-    - On `SessionEnd`, `track` also writes `ledger/fragments/<session>.jsonl` through `aico-ci ledger record`, and that fragment is committed with the PR.
+    - Before each Bash `git commit` (PreToolUse, `"if": "Bash(git commit*)"`), `track` rewrites `ledger/fragments/<session>.jsonl` through `aico-ci ledger record` and stages it, so the fragment is committed with the PR. No hook pushes. (Audit D, B1: a SessionEnd fragment would never leave the sandbox.) The rule is one session, one PR.
     - `lint` does in .NET what the `jq` hook did.
   - `policy.yaml`: comments only. Model contexts run in local sandboxes, and a Sonar Blocker/High counts as `critical`. Rules are unchanged.
   - `ops/bands.md`: the Diagnose and Act rows become "issue filed (no model) → engineer starts an agent from the hub".
@@ -219,6 +219,6 @@ This build runs on the current host, because sandboxes aren't set up until this 
   - Plan → `sbx ls` shows `aico-issue-N`, and attaching shows Claude in **plan mode**, not bypass.
   - A sub-agent appears in the Agents panel.
   - Inside the VM, `curl` to a host not on the allowlist is blocked.
-  - `SessionEnd` writes a fragment with non-zero tokens, and `git fetch sandbox-aico-issue-N` brings the branch to the host.
+  - The agent's commit contains a fragment with non-zero tokens, and `git fetch sandbox-aico-issue-N` brings the branch to the host.
 - **Sonar:** "Start SonarQube" serves `localhost:9000` from your folder. The skill in an agent sandbox prints bloat, conventions and bugs, with no security findings.
 - **API key:** `git grep ANTHROPIC_API_KEY` finds only the historical mention in `ClaudeRunResult.cs` and its tests.
