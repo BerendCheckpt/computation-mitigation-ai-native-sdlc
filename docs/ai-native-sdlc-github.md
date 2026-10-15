@@ -19,7 +19,13 @@ Legend: ◆ = deterministic (no model) · ● = model
 
 ## Part A — GitHub platform setup (one-time, per org/repo)
 
-1. **Claude GitHub App and `anthropics/claude-code-action@v1`.** Run `/install-github-app` from Claude Code, or install the app from GitHub. Store `ANTHROPIC_API_KEY` as an organisation secret and scope it to the repos that use it. Workload identity federation (OIDC) is the preferred alternative to a static key.
+1. **Engineer machine (no API key).** Claude Code runs only locally, signed in with the Claude subscription (`/login`). No workflow calls a model, and nothing needs `ANTHROPIC_API_KEY`. Every agent runs in its own **Docker Sandbox**: a microVM with its own kernel, deny-by-default egress, and credentials injected by a host proxy so they never enter the VM. It uses clone mode: a private clone, with the host checkout mounted read-only. Sub-agents run inside their agent's sandbox. One-time setup:
+   - `winget install -h Docker.sbx`, enable Windows Hypervisor Platform (`Enable-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform -All`), then `sbx login` (Docker account). Docker Desktop is not needed.
+   - Git with a checkout of the repo. Credentials: `sbx secret set github` (a fine-grained PAT for this repo) and `sbx secret set sonar` (the SonarQube token, after step 4). Set the same PAT as `GITHUB_TOKEN` for the hub.
+   - Allow the two host services agents may reach: `sbx policy allow network localhost:5171` (hub) and `sbx policy allow network localhost:9000` (SonarQube).
+   - Download `aico-hub` from the latest `hub-v*` GitHub Release and run it from the checkout. Open it in the Claude desktop browser pane (`.claude/launch.json` entry `aico-hub`, `http://127.0.0.1:5171`). The hub runs on the host, never in a VM.
+   - Press "Start SonarQube" in the hub. It runs `~/Documents/Tools/Sonarqube` (or `SONARQUBE_HOME`) in the `aico-sonarqube` sandbox. Then, at `http://localhost:9000`, change the admin password and create a token.
+   - On the first Plan, run `/login` once inside Claude.
 2. **Ruleset on `main`:**
    - PR required with 1 approval and CODEOWNERS review required.
    - Required status checks: `ci / build-test`, `template-verify / verify`.
@@ -47,14 +53,14 @@ Legend: ◆ = deterministic (no model) · ● = model
 
 | Stage | Trigger | What runs | Artifact / gate | Mitigation |
 |---|---|---|---|---|
-| **1 Plan** | A requirements analyst opens a "New intent" issue (label `stage:intent`), which starts `stage-1-intent.yml`. A chat session also works. | ● Claude picks up the issue with the `write-intent` skill. It asks at most 5 clarifying questions in one comment; the analyst answers there and mentions `@claude`. Claude then opens an `intent.md` PR linked to the issue. | PR; the product owner's merge is the acceptance | Sonnet tier; ◆ `match_template` notes existing deterministic flows |
-| **2 Design** | Merge touching `work/**/intent.md` | ● `stage-2-spec.yml` runs Claude with `write-spec` and the `security-policy` skill, and flags concerns | `spec.md` PR; product owner and policy owner approve | ◆ `match_template` runs first; a crystallized template is *referenced*, not re-specified |
+| **1 Plan** | A requirements analyst opens a "New intent" issue (label `stage:intent`). It appears in the hub. | ● The engineer presses **Plan** in the hub, which starts an agent sandbox in plan mode. The agent uses the `write-intent` skill: it asks at most 5 clarifying questions in one issue comment, then opens an `intent.md` PR linked to the issue. | PR; the product owner's merge is the acceptance | ◆ `match_template` notes existing deterministic flows |
+| **2 Design** | Merge touching `work/**/intent.md` | ◆ `stage-2-spec.yml` opens a `stage:spec` issue (no model). ● The engineer starts an agent from the hub, which uses `write-spec` and the `security-policy` skill and flags concerns. | `spec.md` PR; product owner and policy owner approve | ◆ `match_template` runs first; a crystallized template is *referenced*, not re-specified |
 | **3 Build** | Merge of `spec.md` | ◆ `stage-3-plan-notify.yml` opens a "plan" issue (no model). An engineer runs a **plan-mode** session, commits `plan.md` (tech lead approves), then implements. | `plan.md` PR; ◆ `plan-scope` hook | ◆ crystallized parts come from `generate_*` (~50 tokens vs thousands); ● only the novel parts |
 | **4 Test** | Every push | ◆ build, tests, golden files, routing evals, template validation, template self-test (`ci.yml`) | Required checks | ◆ template output verified by **regenerate + diff** |
-| **5 Deploy / Review** | PR opened or updated | ◆ `template-verify.yml`, then ● `claude-review.yml` following `REVIEW.md` (findings ranked by severity). Humans review `critical`/`regulated`. `@claude` in PR comments for fixes. | Ruleset approvals; prod environment gate; one-line rollback | ◆ **AI review skipped for template-only PRs**; ● review only hand-written lines |
-| **6 Maintain** | Hourly `maintain-detect.yml` | ◆ detection script (mean/σ). `ops/bands.md` bands: 1σ log · 2σ ● read-only diagnosis → anomaly issue · 3σ ● PR through review, or a pre-approved runbook | Diagnosis is written as a new intent; humans triage | ◆ runbooks are scripts; ● fixes only when not `critical` (otherwise human) |
-| **6 Maintain (failed CI run)** | A `ci` or `template-verify` run fails (`workflow_run` in `maintain-detect.yml`, same-repo runs only) | ● headless Claude reads `gh run view --log-failed` read-only and comments the root cause and a minimal fix on the PR | Engineer applies the fix through the PR | ● Sonnet, max 10 turns, no edit tools; one run per commit |
-| **6 Maintain (filed defects)** | Someone labels an issue `agent-fix-allowed` (`stage-6-agent-fix.yml`); later `@claude` comments continue it | ● Claude finds the root cause, writes a failing test first, fixes it and opens a `Fixes #N` PR. `critical` → ◆ policy comment, no model | Fix PR through template-verify, review and CODEOWNERS | ● model only for non-critical fixes; ◆ `match_template` first |
+| **5 Deploy / Review** | PR opened or updated | ◆ `template-verify.yml` (regen-verify). ● AI review following `REVIEW.md` runs **locally** in the author's agent sandbox before the PR, unless the PR is template-only. ◆ `sonarqube` skill after the code is written. Humans review `critical`/`regulated`. | Ruleset approvals; prod environment gate; one-line rollback | ◆ **AI review skipped for template-only PRs**; ● review only hand-written lines |
+| **6 Maintain** | Hourly `maintain-detect.yml` | ◆ detection script (mean/σ). `ops/bands.md` bands: 1σ log · 2σ ◆ anomaly issue filed (no model) → ● read-only diagnosis by an agent started from the hub · 3σ also `agent-fix-allowed` → ● fix PR through review, or a pre-approved runbook | Diagnosis is written as a new intent; humans triage | ◆ runbooks are scripts; ● fixes only when not `critical` (otherwise human) |
+| **6 Maintain (failed CI run)** | A `ci` or `template-verify` run fails | ● The engineer runs the headless diagnose command (`CLAUDE.md` Commands) in an agent sandbox: read-only `gh run view --log-failed` → root cause and a minimal fix | Engineer applies the fix through the PR | ● Sonnet; no edit tools |
+| **6 Maintain (filed defects)** | Someone labels an issue `agent-fix-allowed`; it appears in the hub | ● Plan in the hub: the agent finds the root cause, writes a failing test first, fixes it and opens a `Fixes #N` PR. `critical` → no Plan button, a human fixes it | Fix PR through template-verify, review and CODEOWNERS | ● model only for non-critical fixes; ◆ `match_template` first |
 
 ### Artifact chain (what triggers what)
 - Issue `stage:intent` → `intent.md` PR → merge → **spec workflow** → `spec.md` PR → merge → **plan issue** → `plan.md` PR → merge → implementation PR → `template-verify` (+ AI review if needed) → merge → `ci` → `deploy` (dev auto, prod gated).
@@ -71,8 +77,8 @@ Legend: ◆ = deterministic (no model) · ● = model
 
 ### Stage 1 in detail (requirements analysts)
 1. The analyst opens **New intent** and fills in the problem, not the solution.
-2. Within a minute Claude either asks its questions in one comment, or opens the intent PR straight away.
-3. The analyst corrects misunderstandings in the PR (comment `@claude …` or edit directly).
+2. An engineer presses **Plan** on the issue in the hub. The agent either asks its questions in one comment, or opens the intent PR straight away.
+3. The analyst corrects misunderstandings in the PR (a review comment that the engineer's agent picks up, or a direct edit).
 4. The product owner merges, and the merge records author and timestamp. Design starts automatically.
 
 ### Stage 3 in detail (engineers)
