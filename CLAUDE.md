@@ -55,5 +55,7 @@ Sonar scan has no Blocker/High findings (`sonarqube` skill, after the code is wr
 
 ## Known mistakes (add a line when something happens twice)
 - `dotnet run file.cs` defaults to AOT-style trimming: keep `#:property PublishAot=false` in scripts that use Core.
+  The exception is `scripts/aico-hub.cs`, which is published as Native AOT: it may use only AOT-safe Core code
+  (`LocalHub`, with source-generated JSON). Never use YamlDotNet or `PolicyEvaluator` there.
 - Golden files live in `tests/golden/`, never inside a test project (they would be compiled).
 - Never put `NaN`/`Infinity` in anything that is serialized to JSON (it throws): use `double?` and `null` for "unknown" (issue #4).
