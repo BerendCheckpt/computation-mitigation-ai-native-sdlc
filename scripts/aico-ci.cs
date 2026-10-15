@@ -7,9 +7,13 @@
 //   dotnet run scripts/aico-ci.cs -- generate minimal-api-endpoint --out <dir> entity=Order project=Shop.Api
 //   dotnet run scripts/aico-ci.cs -- detect --metric ci_failure_rate --history ops/metrics/ci_failure_rate.json --current 0.08
 //   dotnet run scripts/aico-ci.cs -- kpi --logs .aico --out reports/kpi.md
-//   dotnet run scripts/aico-ci.cs -- ledger record --result <claude-result.json> --path model --source stage-6-agent-fix [--out <fragment.jsonl>]
+//   dotnet run scripts/aico-ci.cs -- ledger record --result <claude-result.json|session.jsonl> [--result <subagent.jsonl> …] --path model --source stage-6-agent-fix [--out <fragment.jsonl>]
+//                                                                       (repeated --result files are summed: main transcript + sub-agent transcripts)
 //   dotnet run scripts/aico-ci.cs -- ledger merge --from <dir-with-fragments>
 //   dotnet run scripts/aico-ci.cs -- ledger report | ledger check      → reports/token-ledger.md (check: fails if stale)
+//   dotnet run scripts/aico-ci.cs -- sonar [--url <sonar url>] [--project cnu-aico]
+//                                                                       → bloat / conventions / bugs (no security); exit 2 on Blocker/High, 1 if unreachable
+//                                                                         url: --url, else $SONAR_HOST_URL, else http://host.docker.internal:9000; token: $SONAR_TOKEN
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
@@ -22,6 +26,7 @@ using Cnu.AICO.Core.Telemetry;
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
 var command = args.FirstOrDefault() ?? "";
 string? Opt(string name) => Array.IndexOf(args, name) is var i && i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
+List<string> Opts(string name) => [.. Enumerable.Range(0, Math.Max(0, args.Length - 1)).Where(i => args[i] == name).Select(i => args[i + 1])];
 var templatesPath = Opt("--templates") ?? "templates";
 var log = new DecisionLog(Opt("--log") ?? Environment.GetEnvironmentVariable("CNU_AICO_LOG") ?? ".aico/decisions.jsonl");
 var json = new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true };
@@ -36,6 +41,7 @@ return command switch
     "detect" => Detect(),
     "kpi" => Kpi(),
     "ledger" => Ledger(),
+    "sonar" => await Sonar(),
     _ => Usage(),
 };
 
@@ -160,14 +166,17 @@ int Ledger()
         case "record":
             {
                 // Never fails the calling workflow: a missing or unreadable result is a warning, not an error.
-                var resultFile = Opt("--result");
-                if (resultFile is null || !File.Exists(resultFile))
+                // Several --result files (main session transcript + sub-agent transcripts) are summed.
+                var resultFiles = Opts("--result");
+                var missing = resultFiles.Count == 0 ? "" : resultFiles.FirstOrDefault(f => !File.Exists(f));
+                if (missing is not null)
                 {
-                    Console.WriteLine($"::warning::No Claude result file at '{resultFile}'; nothing recorded in the token ledger.");
+                    Console.WriteLine($"::warning::No Claude result file at '{missing}'; nothing recorded in the token ledger.");
                     return 0;
                 }
+                var resultFile = string.Join(", ", resultFiles);
                 ClaudeRunResult r;
-                try { r = ClaudeResultParser.Parse(File.ReadAllText(resultFile)); }
+                try { r = ClaudeResultParser.Parse(resultFiles.Select(File.ReadAllText).ToList()); }
                 catch (Exception ex) when (ex is InvalidDataException or JsonException or InvalidOperationException)
                 {
                     Console.WriteLine($"::warning::Could not read usage from '{resultFile}': {ex.Message}");
@@ -267,6 +276,46 @@ int Ledger()
     }
 }
 
+// Local only (never in a workflow): reads the whole project's open maintainability and reliability issues from the
+// SonarQube server and groups them; classification lives in Cnu.AICO.Core.Ops.SonarFindings.
+async Task<int> Sonar()
+{
+    var url = Opt("--url") ?? Environment.GetEnvironmentVariable("SONAR_HOST_URL");
+    url = (string.IsNullOrWhiteSpace(url) ? "http://host.docker.internal:9000" : url).TrimEnd('/') + "/";
+    var project = Opt("--project") ?? "cnu-aico";
+    using var http = new HttpClient { BaseAddress = new Uri(url), Timeout = TimeSpan.FromSeconds(30) };
+    if (Environment.GetEnvironmentVariable("SONAR_TOKEN") is { Length: > 0 } token)
+        http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+    var issues = new List<SonarIssue>();
+    for (var page = 1; ; page++)
+    {
+        string body;
+        try
+        {
+            using var response = await http.GetAsync(SonarFindings.SearchPath(project, page));
+            body = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode)
+            {
+                Console.Error.WriteLine($"SonarQube at {url} answered {(int)response.StatusCode} {response.ReasonPhrase} for project '{project}'. Check SONAR_TOKEN and --project.");
+                return 1;
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            Console.Error.WriteLine($"Cannot reach SonarQube at {url}: {ex.Message}. Start it from the hub, or pass --url / set SONAR_HOST_URL.");
+            return 1;
+        }
+        var result = SonarFindings.ParsePage(body);
+        issues.AddRange(result.Issues);
+        if (result.Issues.Count == 0 || page * SonarFindings.PageSize >= result.Total)
+            break;
+    }
+
+    Console.Write(SonarFindings.Report(project, issues));
+    return issues.Any(SonarFindings.IsBlocking) ? 2 : 0;
+}
+
 static string? GitSha()
 {
     if (Environment.GetEnvironmentVariable("GITHUB_SHA") is { Length: > 0 } sha)
@@ -302,6 +351,6 @@ static void GitHubSummary(string markdown)
 
 static int Usage()
 {
-    Console.Error.WriteLine("usage: aico-ci <validate|verify|match|generate|detect|kpi|ledger> [options]");
+    Console.Error.WriteLine("usage: aico-ci <validate|verify|match|generate|detect|kpi|ledger|sonar> [options]");
     return 2;
 }

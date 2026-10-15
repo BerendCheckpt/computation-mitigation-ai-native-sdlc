@@ -65,8 +65,9 @@ public sealed record LedgerRun : LedgerEntry
     public string? SessionId { get; init; }
     public bool TotalsUnreliable { get; init; }
 
+    /// <summary>A baseline must have used tokens: a run that called no model is reliable, but measures nothing to save.</summary>
     public bool UsableAsBaseline =>
-        Path == LedgerPaths.Model && !IsError && Subtype == "success" && !TotalsUnreliable && UsedTemplate != true && Accepted != false;
+        Path == LedgerPaths.Model && !IsError && Subtype == "success" && !TotalsUnreliable && Tokens.Total > 0 && UsedTemplate != true && Accepted != false;
 
     public static LedgerRun From(ClaudeRunResult r, string id, string path, string source) => new()
     {
